@@ -1,36 +1,43 @@
 # Analytics Exporter Module
 
-Etendo module for automated extraction and submission of usage metrics and health data to the centralized observability platform.
+Etendo module for automated extraction and submission of usage metrics and health data to the centralized observability
+platform.
 
 ## Description
 
-This module implements a complete data export system for sessions and usage audits from Etendo to the centralized receiver at `https://receiver.otel2.etendo.cloud/process`.
+This module implements a complete data export system for sessions and usage audits from Etendo to the centralized
+receiver at `https://receiver.otel2.etendo.cloud/process`.
 
 The module supports two synchronized data types:
+
 - **SESSION_USAGE_AUDITS**: Sessions and usage audit data
 - **MODULE_METADATA**: Installed module metadata
 
 ## Features
 
 ### 1. Dual Data Types Support
+
 - **SESSION_USAGE_AUDITS**: Sessions and usage audit records with complete window/process enrichment
 - **MODULE_METADATA**: Installed module information with versioning and commercial status
 
 ### 2. Advanced Data Enrichment
-- **Dynamic Window/Process Resolution**: 
-  - For windows: `object_id` → Tab → Window → Module
-  - For processes: `object_id` → Process → Module directly
+
+- **Dynamic Window/Process Resolution**:
+    - For windows: `object_id` → Tab → Window → Module
+    - For processes: `object_id` → Process → Module directly
 - Complete metadata extraction (module name, version, java package)
 - Core version tracking from module `0`
 - **Critical Filter**: Automatically excludes POS sessions (`NOT login_status IN ('OBPOS_POS')`)
 
 ### 3. Incremental Synchronization
+
 - Persists last successful sync timestamp in `ETAE_ANALYTICS_SYNC` table
 - Separate tracking per sync type (SESSION_USAGE_AUDITS, MODULE_METADATA)
 - Prevents data duplication
 - **Fallback**: If no previous sync exists, exports last 7 days (SESSION_USAGE_AUDITS only)
 
 ### 4. Robust HTTP Client
+
 - HTTPS submission to `https://receiver.otel2.etendo.cloud/process`
 - **Retry Policy**: Up to 3 retries on 5xx errors with 2-second delays
 - Configured timeouts (30s connect, 60s read)
@@ -38,23 +45,27 @@ The module supports two synchronized data types:
 - Logs `job_id` returned by receiver
 
 ### 5. Test Mode (DEBUG_MODE)
+
 - Environment variable: `ANALYTICS_EXPORTER_DEBUG_MODE=true`
 - Skips HTTP submission to receiver
 - Displays full JSON payload in logs
 - Allows validation before production deployment
 
 ### 6. Flexible Receiver URL Configuration
+
 - Default: `https://receiver.otel2.etendo.cloud/process`
 - Configurable via preference: `ETAE_RECEIVER_URL` (Property: Attribute)
 - Constructor override support for testing
 
 ### 7. Schedulable Process
+
 - Class `AnalyticsSyncProcess` extending `DalBaseProcess`
 - Can be configured in Process Scheduling for daily execution
 - Detailed reporting (sessions, audits, modules, job_id, duration)
 - Supports both sync types as parameters
 
 ### 8. Health Check Endpoint
+
 - Endpoint: `/etendo/com.etendoerp.analytics.exporter.HealthCheck`
 - Returns last synchronization state (SESSION_USAGE_AUDITS)
 - Includes: timestamp, job_id, status, detailed log
@@ -66,8 +77,6 @@ src/com/etendoerp/analytics/exporter/
 ├── data/
 │   ├── AnalyticsPayload.java         # Main payload container
 │   ├── PayloadMetadata.java          # Payload metadata
-│   ├── SessionData.java              # Session data (deprecated)
-│   ├── UsageAuditData.java           # Usage audit data (deprecated)
 │   └── AnalyticsSync.java            # DAL entity for ETAE_ANALYTICS_SYNC table
 ├── service/
 │   ├── AnalyticsSyncService.java     # Main synchronization service
@@ -174,6 +183,7 @@ src-db/database/
 ## Receiver Response
 
 ### Success (202 Accepted)
+
 ```json
 {
   "status": "received",
@@ -191,6 +201,7 @@ src-db/database/
 ```
 
 ### Error (400/500)
+
 ```json
 {
   "status": "error",
@@ -198,56 +209,70 @@ src-db/database/
 }
 ```
 
-> **Note**: The module uses `@JsonIgnoreProperties(ignoreUnknown = true)` to handle additional fields like `data_summary` and `received_at` that may be returned by the receiver.
+> **Note**: The module uses `@JsonIgnoreProperties(ignoreUnknown = true)` to handle additional fields like
+`data_summary` and `received_at` that may be returned by the receiver.
 
 ## Installation and Configuration
 
 ### 1. Install Module
+
 ```bash
 ./gradlew smartbuild
 ```
 
 ### 2. Configure Receiver URL (Optional)
+
 To use a custom receiver URL:
+
 1. Go to: **General Setup** > **Application** > **Preference**
 2. Create new preference:
-   - **Property**: Attribute
-   - **Attribute**: `ETAE_RECEIVER_URL`
-   - **Search Key**: Custom value (e.g., `CUSTOM_RECEIVER`)
-   - **Value**: Your custom receiver URL (e.g., `https://custom-receiver.example.com/process`)
-   - **Visibility**: System level (Client=*, Organization=*)
+    - **Property**: Attribute
+    - **Attribute**: `ETAE_RECEIVER_URL`
+    - **Search Key**: Custom value (e.g., `CUSTOM_RECEIVER`)
+    - **Value**: Your custom receiver URL (e.g., `https://custom-receiver.example.com/process`)
+    - **Visibility**: System level (Client=*, Organization=*)
 
-> **Note**: If no preference is configured, the module uses the default URL: `https://receiver.otel2.etendo.cloud/process`
+> **Note**: If no preference is configured, the module uses the default URL:
+`https://receiver.otel2.etendo.cloud/process`
 
 ### 3. Enable Test Mode (Optional)
+
 For testing without sending data to the receiver:
+
 ```bash
 export ANALYTICS_EXPORTER_DEBUG_MODE=true
 ```
+
 Or in Tomcat's `setenv.sh`:
+
 ```bash
 CATALINA_OPTS="$CATALINA_OPTS -DANALYTICS_EXPORTER_DEBUG_MODE=true"
 ```
 
 ### 4. Configure Scheduled Process (Optional)
+
 1. Go to: **General Setup** > **Process Scheduling** > **Process Request**
 2. Create new process:
-   - **Process**: Analytics Sync Process
-   - **Parameter**: Select sync type (`SESSION_USAGE_AUDITS` or `MODULE_METADATA`)
-   - **Frequency**: Daily
-   - **Timing**: 02:00 AM (or as preferred)
+    - **Process**: Analytics Sync Process
+    - **Parameter**: Select sync type (`SESSION_USAGE_AUDITS` or `MODULE_METADATA`)
+    - **Frequency**: Daily
+    - **Timing**: 02:00 AM (or as preferred)
 
 ### 5. Manual Execution
-From **General Setup** > **Process Scheduling** > **Process Request**, execute the created process or run directly from the process definition window.
+
+From **General Setup** > **Process Scheduling** > **Process Request**, execute the created process or run directly from
+the process definition window.
 
 ## Health Check
 
 ### Endpoint
+
 ```
 GET /etendo/com.etendoerp.analytics.exporter.HealthCheck
 ```
 
 ### Sample Response
+
 ```json
 {
   "status": "healthy",
@@ -266,24 +291,30 @@ GET /etendo/com.etendoerp.analytics.exporter.HealthCheck
 The module implements sophisticated logic to resolve window and process information from usage audits:
 
 #### For Windows (`command != 'DEFAULT'`, object_type = 'W')
+
 ```
 object_id (Tab ID) → AD_Tab → AD_Window → Module
 ```
+
 1. Fetch Tab using `object_id`
 2. Get Window from Tab relationship
 3. Extract module information from Window
 4. Populate: `window_id`, `window_name`, `module_id`, `module_name`, `module_javapackage`, `module_version`
 
 #### For Processes (`command = 'DEFAULT'`, object_type = 'P')
+
 ```
 object_id (Process ID) → AD_Process → Module
 ```
+
 1. Fetch Process directly using `object_id`
 2. Extract module information from Process
 3. Populate: `process_id`, `process_name`, `module_id`, `module_name`, `module_javapackage`, `module_version`
 
 #### SQL Query Reference
+
 The enrichment logic is based on this SQL structure:
+
 ```sql
 SELECT 
     ua.ad_session_usage_audit_id,
@@ -407,31 +438,37 @@ JSON Node with full enrichment
 ## Troubleshooting
 
 ### Error: "Failed to send data after 3 attempts"
+
 - Verify connectivity with `receiver.otel2.etendo.cloud`
 - Check receiver logs
 - Validate JSON payload is well-formed
 - Disable DEBUG_MODE if enabled
 
 ### Error: "Client error: 400"
+
 - Verify payload format matches expected schema
 - Check required fields in metadata
 - Validate timestamps are in ISO-8601 format
 - Review receiver logs for specific validation errors
 
 ### No data being exported
+
 - Verify sessions/audits exist in the date range
 - Check filter `NOT login_status IN ('OBPOS_POS')`
 - Verify database permissions
 - Check last sync timestamp in `ETAE_ANALYTICS_SYNC` table
 
 ### JSON shows nulls for window_id/process_id
+
 - Verify `object_id` exists in `AD_Tab` (for windows) or `AD_Process` (for processes)
 - Check that Tab has a valid Window relationship
 - Review logs for "Could not fetch window/process info" warnings
 - Confirm module relationships are properly set
 
 ### Test Mode (DEBUG_MODE)
+
 To validate payloads without sending:
+
 ```bash
 export ANALYTICS_EXPORTER_DEBUG_MODE=true
 # Restart Tomcat
@@ -440,6 +477,7 @@ export ANALYTICS_EXPORTER_DEBUG_MODE=true
 ```
 
 ### Custom Receiver URL not working
+
 - Verify preference exists: `ETAE_RECEIVER_URL`
 - Check property type is "Attribute"
 - Confirm visibility level (Client=*, Organization=*)
@@ -456,6 +494,7 @@ export ANALYTICS_EXPORTER_DEBUG_MODE=true
 ## Technical Notes
 
 ### Entity Relationships
+
 - `SessionUsageAudit` → `Session` (many-to-one)
 - `SessionUsageAudit` → `Module` (many-to-one, via window/process)
 - `Tab` → `Window` (many-to-one)
@@ -463,14 +502,18 @@ export ANALYTICS_EXPORTER_DEBUG_MODE=true
 - `Process` → `Module` (many-to-one)
 
 ### Timestamp Format
+
 All timestamps are exported in ISO-8601 format with microseconds:
+
 ```
 yyyy-MM-dd'T'HH:mm:ss.SSSSSSXXX
 Example: 2025-01-13T10:30:00.000000+00:00
 ```
 
 ### Database Table: ETAE_ANALYTICS_SYNC
+
 Tracks synchronization state per sync type:
+
 - `ETAE_Analytics_Sync_ID`: Primary key (UUID)
 - `Sync_Type`: Type of sync (SESSION_USAGE_AUDITS, MODULE_METADATA)
 - `Last_Sync`: Timestamp of last successful sync
@@ -484,6 +527,7 @@ This module is part of the Etendo ERP project.
 ## Support
 
 For issues or questions:
+
 1. Review logs in Etendo: `catalina.out` or `etendo.log`
 2. Check health check endpoint: `/etendo/com.etendoerp.analytics.exporter.HealthCheck`
 3. Verify receiver status at `receiver.otel2.etendo.cloud`
@@ -492,6 +536,7 @@ For issues or questions:
 ## Version History
 
 ### 1.0.0
+
 - Initial release
 - SESSION_USAGE_AUDITS sync type support
 - MODULE_METADATA sync type support

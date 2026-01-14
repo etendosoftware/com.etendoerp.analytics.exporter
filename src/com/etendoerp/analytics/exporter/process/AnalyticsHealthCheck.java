@@ -27,7 +27,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 public class AnalyticsHealthCheck extends HttpSecureAppServlet {
 
   private static final Logger log = LogManager.getLogger();
-  private static final long serialVersionUID = 1L;
+  static final long serialVersionUID = 1L;
   public static final String STATUS = "status";
   public static final String HEALTH = "health";
   public static final String ERROR = "error";
