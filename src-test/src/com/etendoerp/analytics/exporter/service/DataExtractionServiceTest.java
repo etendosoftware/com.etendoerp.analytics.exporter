@@ -6,7 +6,6 @@ import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -19,21 +18,19 @@ import java.util.List;
 
 import org.hibernate.criterion.Criterion;
 import org.hibernate.criterion.Order;
-import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
-import org.mockito.MockedStatic;
 import org.mockito.junit.MockitoJUnitRunner;
 import org.openbravo.base.exception.OBException;
 import org.openbravo.dal.core.OBContext;
 import org.openbravo.dal.service.OBCriteria;
-import org.openbravo.dal.service.OBDal;
 import org.openbravo.model.ad.access.Session;
 import org.openbravo.model.ad.access.SessionUsageAudit;
 import org.openbravo.model.ad.module.Module;
 
+import com.etendoerp.analytics.exporter.BaseAnalyticsTest;
 import com.etendoerp.analytics.exporter.data.AnalyticsPayload;
 import com.etendoerp.analytics.exporter.data.PayloadMetadata;
 
@@ -42,12 +39,10 @@ import com.etendoerp.analytics.exporter.data.PayloadMetadata;
  * Tests data extraction using DAL with proper mocking
  */
 @RunWith(MockitoJUnitRunner.class)
-public class DataExtractionServiceTest {
+public class DataExtractionServiceTest extends BaseAnalyticsTest {
 
+  public static final String TEST_INSTANCE = "test-instance";
   private DataExtractionService service;
-  
-  @Mock
-  private OBDal mockOBDal;
   
   @Mock
   private OBCriteria<Session> mockSessionCriteria;
@@ -58,13 +53,13 @@ public class DataExtractionServiceTest {
   @Mock
   private OBCriteria<Module> mockModuleCriteria;
   
-  private MockedStatic<OBContext> mockedContext;
-  private MockedStatic<OBDal> mockedDal;
-  
   private List<Session> mockSessions;
   private List<SessionUsageAudit> mockAudits;
   private List<Module> mockModules;
 
+  /**
+   * Sets up test fixtures and mock data before each test execution.
+   */
   @Before
   public void setUp() {
     service = new DataExtractionService();
@@ -73,52 +68,30 @@ public class DataExtractionServiceTest {
     mockSessions = new ArrayList<>();
     mockAudits = new ArrayList<>();
     mockModules = new ArrayList<>();
-    
-    // Mock static methods
-    mockedContext = mockStatic(OBContext.class);
-    mockedDal = mockStatic(OBDal.class);
-    
-    mockedDal.when(OBDal::getInstance).thenReturn(mockOBDal);
   }
 
-  @After
-  public void tearDown() {
-    if (mockedContext != null) {
-      mockedContext.close();
-    }
-    if (mockedDal != null) {
-      mockedDal.close();
-    }
-  }
-
+  /**
+   * Tests successful extraction of analytics data with sessions and audits.
+   */
   @Test
   public void testExtractAnalyticsDataSuccess() {
     // Setup mocks
     when(mockOBDal.createCriteria(Session.class)).thenReturn(mockSessionCriteria);
     when(mockOBDal.createCriteria(SessionUsageAudit.class)).thenReturn(mockAuditCriteria);
     
-    // Configure session criteria
-    when(mockSessionCriteria.add(any(Criterion.class))).thenReturn(mockSessionCriteria);
-    when(mockSessionCriteria.addOrder(any(Order.class))).thenReturn(mockSessionCriteria);
-    when(mockSessionCriteria.setFilterOnReadableOrganization(anyBoolean())).thenReturn(mockSessionCriteria);
-    when(mockSessionCriteria.setFilterOnReadableClients(anyBoolean())).thenReturn(mockSessionCriteria);
+    setupStandardCriteriaMock(mockSessionCriteria);
     when(mockSessionCriteria.list()).thenReturn(mockSessions);
     
-    // Configure audit criteria
-    when(mockAuditCriteria.createAlias(any(), any())).thenReturn(mockAuditCriteria);
-    when(mockAuditCriteria.add(any(Criterion.class))).thenReturn(mockAuditCriteria);
-    when(mockAuditCriteria.addOrder(any(Order.class))).thenReturn(mockAuditCriteria);
-    when(mockAuditCriteria.setFilterOnReadableOrganization(anyBoolean())).thenReturn(mockAuditCriteria);
-    when(mockAuditCriteria.setFilterOnReadableClients(anyBoolean())).thenReturn(mockAuditCriteria);
+    setupCriteriaWithAliasMock(mockAuditCriteria);
     when(mockAuditCriteria.list()).thenReturn(mockAudits);
     
     // Execute
-    AnalyticsPayload result = service.extractAnalyticsData("test-instance", null, 7);
+    AnalyticsPayload result = service.extractAnalyticsData(TEST_INSTANCE, null, 7);
     
     // Verify
     assertNotNull(result);
     assertNotNull(result.getMetadata());
-    assertEquals("test-instance", result.getMetadata().getSourceInstance());
+    assertEquals(TEST_INSTANCE, result.getMetadata().getSourceInstance());
     assertEquals(Integer.valueOf(7), result.getMetadata().getDaysExported());
     assertNotNull(result.getSessions());
     assertNotNull(result.getUsageAudits());
@@ -128,6 +101,9 @@ public class DataExtractionServiceTest {
     mockedContext.verify(OBContext::restorePreviousMode, times(1));
   }
 
+  /**
+   * Tests extraction of analytics data using last sync timestamp for incremental sync.
+   */
   @Test
   public void testExtractAnalyticsDataWithLastSyncTimestamp() {
     Timestamp lastSync = Timestamp.from(Instant.now().minusSeconds(86400));
@@ -136,53 +112,42 @@ public class DataExtractionServiceTest {
     when(mockOBDal.createCriteria(Session.class)).thenReturn(mockSessionCriteria);
     when(mockOBDal.createCriteria(SessionUsageAudit.class)).thenReturn(mockAuditCriteria);
     
-    when(mockSessionCriteria.add(any(Criterion.class))).thenReturn(mockSessionCriteria);
-    when(mockSessionCriteria.addOrder(any(Order.class))).thenReturn(mockSessionCriteria);
-    when(mockSessionCriteria.setFilterOnReadableOrganization(anyBoolean())).thenReturn(mockSessionCriteria);
-    when(mockSessionCriteria.setFilterOnReadableClients(anyBoolean())).thenReturn(mockSessionCriteria);
+    setupStandardCriteriaMock(mockSessionCriteria);
     when(mockSessionCriteria.list()).thenReturn(mockSessions);
     
-    when(mockAuditCriteria.createAlias(any(), any())).thenReturn(mockAuditCriteria);
-    when(mockAuditCriteria.add(any(Criterion.class))).thenReturn(mockAuditCriteria);
-    when(mockAuditCriteria.addOrder(any(Order.class))).thenReturn(mockAuditCriteria);
-    when(mockAuditCriteria.setFilterOnReadableOrganization(anyBoolean())).thenReturn(mockAuditCriteria);
-    when(mockAuditCriteria.setFilterOnReadableClients(anyBoolean())).thenReturn(mockAuditCriteria);
+    setupCriteriaWithAliasMock(mockAuditCriteria);
     when(mockAuditCriteria.list()).thenReturn(mockAudits);
     
     // Execute
-    AnalyticsPayload result = service.extractAnalyticsData("test-instance", lastSync, null);
+    AnalyticsPayload result = service.extractAnalyticsData(TEST_INSTANCE, lastSync, null);
     
     // Verify
     assertNotNull(result);
     assertNotNull(result.getMetadata());
-    assertEquals("test-instance", result.getMetadata().getSourceInstance());
+    assertEquals(TEST_INSTANCE, result.getMetadata().getSourceInstance());
     
     // Verify criteria was configured for incremental sync
     verify(mockSessionCriteria, times(2)).add(any(Criterion.class)); // POS filter + timestamp filter
     verify(mockAuditCriteria, times(2)).add(any(Criterion.class)); // POS filter + timestamp filter (createAlias is separate)
   }
 
+  /**
+   * Tests extraction of all analytics data when days to export is null.
+   */
   @Test
   public void testExtractAnalyticsDataWithNullDaysToExport() {
     // Setup mocks
     when(mockOBDal.createCriteria(Session.class)).thenReturn(mockSessionCriteria);
     when(mockOBDal.createCriteria(SessionUsageAudit.class)).thenReturn(mockAuditCriteria);
     
-    when(mockSessionCriteria.add(any(Criterion.class))).thenReturn(mockSessionCriteria);
-    when(mockSessionCriteria.addOrder(any(Order.class))).thenReturn(mockSessionCriteria);
-    when(mockSessionCriteria.setFilterOnReadableOrganization(anyBoolean())).thenReturn(mockSessionCriteria);
-    when(mockSessionCriteria.setFilterOnReadableClients(anyBoolean())).thenReturn(mockSessionCriteria);
+    setupStandardCriteriaMock(mockSessionCriteria);
     when(mockSessionCriteria.list()).thenReturn(mockSessions);
     
-    when(mockAuditCriteria.createAlias(any(), any())).thenReturn(mockAuditCriteria);
-    when(mockAuditCriteria.add(any(Criterion.class))).thenReturn(mockAuditCriteria);
-    when(mockAuditCriteria.addOrder(any(Order.class))).thenReturn(mockAuditCriteria);
-    when(mockAuditCriteria.setFilterOnReadableOrganization(anyBoolean())).thenReturn(mockAuditCriteria);
-    when(mockAuditCriteria.setFilterOnReadableClients(anyBoolean())).thenReturn(mockAuditCriteria);
+    setupCriteriaWithAliasMock(mockAuditCriteria);
     when(mockAuditCriteria.list()).thenReturn(mockAudits);
     
     // Execute - no lastSync, no daysToExport (all data)
-    AnalyticsPayload result = service.extractAnalyticsData("test-instance", null, null);
+    AnalyticsPayload result = service.extractAnalyticsData(TEST_INSTANCE, null, null);
     
     // Verify
     assertNotNull(result);
@@ -192,24 +157,26 @@ public class DataExtractionServiceTest {
     verify(mockSessionCriteria, times(1)).add(any(Criterion.class));
   }
 
+  /**
+   * Tests that runtime exceptions are wrapped in OBException during extraction.
+   */
   @Test(expected = OBException.class)
   public void testExtractAnalyticsDataThrowsOBException() {
     // Setup mock to throw exception
     when(mockOBDal.createCriteria(Session.class)).thenThrow(new RuntimeException("Database error"));
     
     // Execute - should wrap exception in OBException
-    service.extractAnalyticsData("test-instance", null, 7);
+    service.extractAnalyticsData(TEST_INSTANCE, null, 7);
   }
 
+  /**
+   * Tests successful extraction of module metadata.
+   */
   @Test
   public void testExtractModuleMetadataSuccess() {
     // Setup mocks
     when(mockOBDal.createCriteria(Module.class)).thenReturn(mockModuleCriteria);
-    
-    when(mockModuleCriteria.add(any(Criterion.class))).thenReturn(mockModuleCriteria);
-    when(mockModuleCriteria.addOrder(any(Order.class))).thenReturn(mockModuleCriteria);
-    when(mockModuleCriteria.setFilterOnReadableOrganization(anyBoolean())).thenReturn(mockModuleCriteria);
-    when(mockModuleCriteria.setFilterOnReadableClients(anyBoolean())).thenReturn(mockModuleCriteria);
+    setupStandardCriteriaMock(mockModuleCriteria);
     when(mockModuleCriteria.list()).thenReturn(mockModules);
     
     // Execute
@@ -227,6 +194,9 @@ public class DataExtractionServiceTest {
     verify(mockModuleCriteria, times(1)).add(any(Criterion.class));
   }
 
+  /**
+   * Tests extraction of module metadata with last sync timestamp for incremental sync.
+   */
   @Test
   public void testExtractModuleMetadataWithLastSyncTimestamp() {
     Timestamp lastSync = Timestamp.from(Instant.now().minusSeconds(86400));
@@ -250,15 +220,14 @@ public class DataExtractionServiceTest {
     verify(mockModuleCriteria, times(2)).add(any(Criterion.class));
   }
 
+  /**
+   * Tests extraction of module metadata when no modules are found.
+   */
   @Test
   public void testExtractModuleMetadataWithEmptyResult() {
     // Setup mocks with empty list
     when(mockOBDal.createCriteria(Module.class)).thenReturn(mockModuleCriteria);
-    
-    when(mockModuleCriteria.add(any(Criterion.class))).thenReturn(mockModuleCriteria);
-    when(mockModuleCriteria.addOrder(any(Order.class))).thenReturn(mockModuleCriteria);
-    when(mockModuleCriteria.setFilterOnReadableOrganization(anyBoolean())).thenReturn(mockModuleCriteria);
-    when(mockModuleCriteria.setFilterOnReadableClients(anyBoolean())).thenReturn(mockModuleCriteria);
+    setupStandardCriteriaMock(mockModuleCriteria);
     when(mockModuleCriteria.list()).thenReturn(new ArrayList<>());
     
     // Execute
@@ -269,13 +238,16 @@ public class DataExtractionServiceTest {
     assertTrue(result.isEmpty());
   }
 
+  /**
+   * Tests that admin mode is restored even when an exception occurs during extraction.
+   */
   @Test
   public void testExtractAnalyticsDataRestoresModeOnException() {
     // Setup mock to throw exception
     when(mockOBDal.createCriteria(Session.class)).thenThrow(new RuntimeException("Test exception"));
     
     try {
-      service.extractAnalyticsData("test-instance", null, 7);
+      service.extractAnalyticsData(TEST_INSTANCE, null, 7);
     } catch (OBException e) {
       // Expected
     }
@@ -284,15 +256,14 @@ public class DataExtractionServiceTest {
     mockedContext.verify(OBContext::restorePreviousMode, times(1));
   }
 
+  /**
+   * Tests that admin mode is restored after successful module metadata extraction.
+   */
   @Test
   public void testExtractModuleMetadataRestoresModeOnCompletion() {
     // Setup mocks
     when(mockOBDal.createCriteria(Module.class)).thenReturn(mockModuleCriteria);
-    
-    when(mockModuleCriteria.add(any(Criterion.class))).thenReturn(mockModuleCriteria);
-    when(mockModuleCriteria.addOrder(any(Order.class))).thenReturn(mockModuleCriteria);
-    when(mockModuleCriteria.setFilterOnReadableOrganization(anyBoolean())).thenReturn(mockModuleCriteria);
-    when(mockModuleCriteria.setFilterOnReadableClients(anyBoolean())).thenReturn(mockModuleCriteria);
+    setupStandardCriteriaMock(mockModuleCriteria);
     when(mockModuleCriteria.list()).thenReturn(mockModules);
     
     // Execute
@@ -302,6 +273,9 @@ public class DataExtractionServiceTest {
     mockedContext.verify(OBContext::restorePreviousMode, times(1));
   }
 
+  /**
+   * Tests extraction of analytics data when zero days are specified.
+   */
   @Test
   public void testExtractAnalyticsDataWithZeroDays() {
     // Setup mocks
@@ -322,7 +296,7 @@ public class DataExtractionServiceTest {
     when(mockAuditCriteria.list()).thenReturn(mockAudits);
     
     // Execute with 0 days
-    AnalyticsPayload result = service.extractAnalyticsData("test-instance", null, 0);
+    AnalyticsPayload result = service.extractAnalyticsData(TEST_INSTANCE, null, 0);
     
     // Verify
     assertNotNull(result);
@@ -332,6 +306,9 @@ public class DataExtractionServiceTest {
     verify(mockSessionCriteria, times(1)).add(any(Criterion.class));
   }
 
+  /**
+   * Tests that metadata timestamp is formatted in ISO-8601 format.
+   */
   @Test
   public void testMetadataTimestampFormat() {
     // Setup mocks
@@ -352,7 +329,7 @@ public class DataExtractionServiceTest {
     when(mockAuditCriteria.list()).thenReturn(mockAudits);
     
     // Execute
-    AnalyticsPayload result = service.extractAnalyticsData("test-instance", null, 7);
+    AnalyticsPayload result = service.extractAnalyticsData(TEST_INSTANCE, null, 7);
     
     // Verify timestamp format (should be ISO-8601 with microseconds)
     String timestamp = result.getMetadata().getExportTimestamp();
@@ -361,12 +338,18 @@ public class DataExtractionServiceTest {
     assertTrue(timestamp.contains("+") || timestamp.contains("Z"));
   }
 
+  /**
+   * Tests that service can be instantiated successfully.
+   */
   @Test
   public void testConstructor() {
     DataExtractionService newService = new DataExtractionService();
     assertNotNull(newService);
   }
 
+  /**
+   * Tests that readable organization and client filters are disabled for admin access.
+   */
   @Test
   public void testFiltersDisableReadableChecks() {
     // Setup mocks
@@ -387,7 +370,7 @@ public class DataExtractionServiceTest {
     when(mockAuditCriteria.list()).thenReturn(mockAudits);
     
     // Execute
-    service.extractAnalyticsData("test-instance", null, 7);
+    service.extractAnalyticsData(TEST_INSTANCE, null, 7);
     
     // Verify filters are disabled for admin access
     verify(mockSessionCriteria).setFilterOnReadableOrganization(false);

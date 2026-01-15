@@ -19,6 +19,9 @@ public class PayloadMetadata {
   @JsonProperty("days_exported")
   private Integer daysExported;
   
+  /**
+   * Default constructor that initializes metadata with default exporter version.
+   */
   public PayloadMetadata() {
     this.exporterVersion = "1.0.0";
   }

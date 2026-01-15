@@ -4,7 +4,7 @@ import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.List;
 
-import org.apache.commons.lang.StringUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.hibernate.criterion.Order;
@@ -24,6 +24,7 @@ import org.openbravo.scheduling.ProcessLogger;
 
 import com.etendoerp.analytics.exporter.data.AnalyticsPayload;
 import com.etendoerp.analytics.exporter.data.AnalyticsSync;
+import com.etendoerp.analytics.exporter.data.PayloadMetadata;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -44,16 +45,24 @@ public class AnalyticsSyncService {
   private static final int DEFAULT_DAYS_EXPORT = 7;
   public static final String JOB_ID = "Job ID: ";
   public static final String SUCCESS = "SUCCESS";
+  public static final String FAILED = "FAILED";
 
   private final DataExtractionService extractionService;
   private final ReceiverHttpClient httpClient;
   private ProcessLogger processLogger;
 
+  /**
+   * Default constructor that initializes the service with default receiver URL.
+   */
   public AnalyticsSyncService() {
     this.extractionService = new DataExtractionService();
     this.httpClient = new ReceiverHttpClient();
   }
 
+  /**
+   * Constructor that allows specifying a custom receiver URL.
+   * @param receiverUrl the URL of the receiver service
+   */
   public AnalyticsSyncService(String receiverUrl) {
     this.extractionService = new DataExtractionService();
     this.httpClient = new ReceiverHttpClient(receiverUrl);
@@ -73,13 +82,6 @@ public class AnalyticsSyncService {
     log.debug(message);
     if (processLogger != null) {
       processLogger.log(message + "\n");
-    }
-  }
-
-  private void logWarn(String message) {
-    log.warn(message);
-    if (processLogger != null) {
-      processLogger.log("WARNING: " + message + "\n");
     }
   }
 
@@ -103,143 +105,148 @@ public class AnalyticsSyncService {
     result.setStartTime(Timestamp.from(Instant.now()));
 
     try {
-      // Get instance name
       String instanceName = getInstanceName();
       logDebug("Instance name: " + instanceName);
 
-      // Get last sync timestamp for this sync type
       SyncState lastSync = getLastSyncState(syncType);
       Timestamp lastSyncTimestamp = lastSync != null ? lastSync.getLastSyncTimestamp() : null;
+      logLastSyncInfo(lastSyncTimestamp, syncType);
 
-      if (lastSyncTimestamp != null) {
-        logDebug("Found last successful sync at: " + lastSyncTimestamp);
-      } else {
-        logDebug("No previous successful sync found for " + syncType);
+      String payloadJson = executeSyncByType(syncType, instanceName, lastSyncTimestamp, result);
+      
+      int recordsCount = calculateRecordsCount(result);
+      if (recordsCount == 0) {
+        result.setStatus(SUCCESS);
+        result.setMessage("No new data to sync for " + syncType);
+        logDebug("No new data found, skipping transmission");
+        return result;
       }
 
-      String payloadJson;
-      int recordsCount = 0;
-
-      // Execute different extraction based on sync type
-      if (StringUtils.equals(SYNC_TYPE_SESSION_USAGE_AUDITS, syncType)) {
-        // Extract sessions and audits (combined in single payload)
-        Integer daysToExport = null;
-        if (lastSyncTimestamp == null) {
-          daysToExport = DEFAULT_DAYS_EXPORT;
-          logDebug("No previous sync found, exporting last " + daysToExport + " days");
-        } else {
-          logDebug("Incremental sync from: " + lastSyncTimestamp + " to now");
-        }
-
-        logDebug("Extracting sessions and usage audits...");
-        AnalyticsPayload payload = extractionService.extractAnalyticsData(
-            instanceName,
-            lastSyncTimestamp,
-            daysToExport
-        );
-
-        result.setSessionsCount(payload.getSessions().size());
-        result.setAuditsCount(payload.getUsageAudits().size());
-        recordsCount = result.getSessionsCount() + result.getAuditsCount();
-        logDebug("Extraction complete: " + result.getSessionsCount() + " sessions, " +
-            result.getAuditsCount() + " audits");
-
-        // Build JSON manually from Etendo entities
-        payloadJson = buildSessionsPayload(payload);
-
-      } else if (StringUtils.equals(SYNC_TYPE_MODULE_METADATA, syncType)) {
-        // Extract module metadata
-        if (lastSyncTimestamp == null) {
-          logDebug("No previous sync found, exporting all active modules");
-        } else {
-          logDebug("Incremental sync: exporting modules installed after " + lastSyncTimestamp);
-        }
-
-        logDebug("Extracting module metadata...");
-        List<Module> modules = extractionService.extractModuleMetadata(lastSyncTimestamp);
-        result.setModulesCount(modules.size());
-        recordsCount = modules.size();
-        logDebug("Extraction complete: " + recordsCount + " modules");
-
-        // Build MODULE_METADATA payload
-        payloadJson = buildModuleMetadataPayload(instanceName, modules);
-
-      } else {
-        throw new IllegalArgumentException("Unknown sync type: " + syncType);
-      }
-
-      // Log the JSON payload for debugging
-      logDebug("========== JSON PAYLOAD START ==========");
-      logDebug(payloadJson);
-      logDebug("========== JSON PAYLOAD END ==========");
-
-      // Send data to receiver
-      logDebug("Sending data to receiver...");
-      ReceiverHttpClient.ReceiverResponse response = httpClient.sendPayload(payloadJson);
-      result.setJobId(response.getJobId());
-      logDebug("Data sent successfully. Job ID: " + result.getJobId());
-
-      result.setStatus(SUCCESS);
-      result.setMessage(
-          "[" + syncType + "] Successfully sent " + recordsCount + " records. Job ID: " + result.getJobId());
-
-      // Set endTime before persisting
-      result.setEndTime(Timestamp.from(Instant.now()));
-
-      // Persist sync state
-      logDebug("Persisting sync state...");
-      persistSyncState(syncType, result);
-      logDebug("Sync state persisted");
+      return sendPayloadAndSaveState(payloadJson, recordsCount, syncType, result);
 
     } catch (Exception e) {
-      logError("Synchronization failed: " + e.getMessage());
-      log.error("Synchronization failed", e);
-      result.setEndTime(Timestamp.from(Instant.now())); // Set endTime before persisting
-      result.setStatus("FAILED");
-      result.setMessage("[" + syncType + "] Error: " + e.getMessage());
-      result.setError(e);
-
-      // Try to persist failed state
-      try {
-        persistSyncState(syncType, result);
-      } catch (Exception persistError) {
-        logError("Failed to persist error state: " + persistError.getMessage());
-        log.error("Failed to persist error state", persistError);
-      }
+      return handleSyncError(result, syncType, e);
     } finally {
-      if (result.getEndTime() == null) {
-        result.setEndTime(Timestamp.from(Instant.now()));
-      }
-      long duration = result.getEndTime().getTime() - result.getStartTime().getTime();
-      logDebug("=== Synchronization Complete [" + syncType + "] === Status: " + result.getStatus() +
-          " | Duration: " + duration + " ms");
+      result.setEndTime(Timestamp.from(Instant.now()));
+    }
+  }
+
+  private void logLastSyncInfo(Timestamp lastSyncTimestamp, String syncType) {
+    if (lastSyncTimestamp != null) {
+      logDebug("Found last successful sync at: " + lastSyncTimestamp);
+    } else {
+      logDebug("No previous successful sync found for " + syncType);
+    }
+  }
+
+  private String executeSyncByType(String syncType, String instanceName, Timestamp lastSyncTimestamp, SyncResult result) 
+      throws JsonProcessingException {
+    if (StringUtils.equals(SYNC_TYPE_SESSION_USAGE_AUDITS, syncType)) {
+      return executeSessionUsageSync(instanceName, lastSyncTimestamp, result);
+    } else if (StringUtils.equals(SYNC_TYPE_MODULE_METADATA, syncType)) {
+      return executeModuleMetadataSync(instanceName, lastSyncTimestamp, result);
+    } else {
+      throw new IllegalArgumentException("Unknown sync type: " + syncType);
+    }
+  }
+
+  private String executeSessionUsageSync(String instanceName, Timestamp lastSyncTimestamp, SyncResult result) 
+      throws JsonProcessingException {
+    Integer daysToExport = determineDaysToExport(lastSyncTimestamp);
+    
+    logDebug("Extracting sessions and usage audits...");
+    AnalyticsPayload payload = extractionService.extractAnalyticsData(
+        instanceName,
+        lastSyncTimestamp,
+        daysToExport
+    );
+
+    result.setSessionsCount(payload.getSessions().size());
+    result.setAuditsCount(payload.getUsageAudits().size());
+    logDebug("Extraction complete: " + result.getSessionsCount() + " sessions, " +
+        result.getAuditsCount() + " audits");
+
+    return buildSessionsPayload(payload);
+  }
+
+  private Integer determineDaysToExport(Timestamp lastSyncTimestamp) {
+    if (lastSyncTimestamp == null) {
+      logDebug("No previous sync found, exporting last " + DEFAULT_DAYS_EXPORT + " days");
+      return DEFAULT_DAYS_EXPORT;
+    } else {
+      logDebug("Incremental sync from: " + lastSyncTimestamp + " to now");
+      return null;
+    }
+  }
+
+  private String executeModuleMetadataSync(String instanceName, Timestamp lastSyncTimestamp, SyncResult result) 
+      throws JsonProcessingException {
+    if (lastSyncTimestamp == null) {
+      logDebug("No previous sync found, exporting all active modules");
+    } else {
+      logDebug("Incremental sync: exporting modules installed after " + lastSyncTimestamp);
     }
 
+    logDebug("Extracting module metadata...");
+    List<Module> modules = extractionService.extractModuleMetadata(lastSyncTimestamp);
+    result.setModulesCount(modules.size());
+    logDebug("Extraction complete: " + result.getModulesCount() + " modules");
+    return buildModulesPayload(modules, instanceName);
+  }
+
+  private int calculateRecordsCount(SyncResult result) {
+    return result.getSessionsCount() + result.getAuditsCount() + result.getModulesCount();
+  }
+
+  private SyncResult sendPayloadAndSaveState(String payloadJson, int recordsCount, String syncType, SyncResult result) 
+      throws Exception {
+    logDebug("Sending " + recordsCount + " records to receiver...");
+    ReceiverHttpClient.ReceiverResponse response = httpClient.sendPayload(payloadJson);
+
+    result.setJobId(response.getJobId());
+    result.setStatus(SUCCESS);
+    result.setMessage("Data exported successfully. Job ID: " + response.getJobId());
+    logDebug("Data sent successfully. Job ID: " + response.getJobId());
+
+    saveSuccessfulSync(syncType, response.getJobId(), recordsCount);
     return result;
   }
 
-  /**
-   * Build JSON payload for SESSION/USAGE_AUDITS sync types
-   * Converts Etendo entities to the expected JSON format
-   */
+  private SyncResult handleSyncError(SyncResult result, String syncType, Exception e) {
+    log.error("Error during " + syncType + " sync", e);
+    result.setStatus(FAILED);
+    result.setMessage("Sync failed: " + e.getMessage());
+    result.setError(e);
+    saveFailedSync(syncType, e.getMessage());
+    return result;
+  }
+
   private String buildSessionsPayload(AnalyticsPayload payload) throws JsonProcessingException {
     ObjectMapper mapper = new ObjectMapper();
     ObjectNode root = mapper.createObjectNode();
 
     // Schema and metadata
     root.put("schema_version", payload.getSchemaVersion());
+    buildMetadataNode(root, payload.getMetadata());
+    buildSessionsArray(root, payload.getSessions(), mapper);
+    buildAuditsArray(root, payload.getUsageAudits(), mapper);
 
-    ObjectNode metadata = root.putObject("metadata");
-    metadata.put("source_instance", payload.getMetadata().getSourceInstance());
-    metadata.put("export_timestamp", payload.getMetadata().getExportTimestamp());
-    metadata.put("exporter_version", payload.getMetadata().getExporterVersion());
-    if (payload.getMetadata().getDaysExported() != null) {
-      metadata.put("days_exported", payload.getMetadata().getDaysExported());
+    return mapper.writeValueAsString(root);
+  }
+
+  private void buildMetadataNode(ObjectNode root, PayloadMetadata metadata) {
+    ObjectNode metadataNode = root.putObject("metadata");
+    metadataNode.put("source_instance", metadata.getSourceInstance());
+    metadataNode.put("export_timestamp", metadata.getExportTimestamp());
+    metadataNode.put("exporter_version", metadata.getExporterVersion());
+    if (metadata.getDaysExported() != null) {
+      metadataNode.put("days_exported", metadata.getDaysExported());
     }
+  }
 
-    // Sessions array
+  private void buildSessionsArray(ObjectNode root, List<org.openbravo.model.ad.access.Session> sessions, ObjectMapper mapper) {
     ArrayNode sessionsArray = root.putArray("sessions");
-    for (org.openbravo.model.ad.access.Session session : payload.getSessions()) {
+    for (org.openbravo.model.ad.access.Session session : sessions) {
       ObjectNode sessionNode = mapper.createObjectNode();
       sessionNode.put("session_id", session.getId());
       sessionNode.put("username", session.getUsername());
@@ -256,99 +263,130 @@ public class AnalyticsSyncService {
       sessionNode.put("ip", session.getRemoteAddress());
       sessionsArray.add(sessionNode);
     }
+  }
 
-    // Usage audits array  
+  private void buildAuditsArray(ObjectNode root, List<SessionUsageAudit> audits, ObjectMapper mapper) {
     ArrayNode auditsArray = root.putArray("usage_audits");
-    for (SessionUsageAudit audit : payload.getUsageAudits()) {
-      ObjectNode auditNode = mapper.createObjectNode();
-      auditNode.put("usage_audit_id", audit.getId());
-      auditNode.put("session_id", audit.getSession() != null ? audit.getSession().getId() : null);
-      auditNode.put("username", audit.getSession() != null ? audit.getSession().getUsername() : null);
-      auditNode.put("command", audit.getCommand());
-      auditNode.put("execution_time", formatTimestamp(audit.getCreationDate()));
-      auditNode.put("process_time_ms", audit.getProcessTime() != null ? audit.getProcessTime().doubleValue() : null);
-
-      // Determine object type and fetch window/process information
-      // Based on SQL: command='DEFAULT' means Process (P), otherwise Window (W)
-      String objectType = StringUtils.equals("DEFAULT", audit.getCommand()) ? "P" : "W";
-
-      String moduleId = null;
-      String moduleName = null;
-      String moduleJavapackage = null;
-      String moduleVersion = null;
-      String windowId = null;
-      String windowName = null;
-      String processId = null;
-      String processName = null;
-
-      if (StringUtils.equals("W", objectType)) {
-        // It's a window - object_id points to ad_tab_id
-        // Need to: Tab -> Window -> Module
-        try {
-          Tab tab = OBDal.getInstance().get(Tab.class, audit.getObject());
-          if (tab != null && tab.getWindow() != null) {
-            Window window = tab.getWindow();
-            windowId = window.getId();
-            windowName = window.getName();
-            // Get module from window
-            if (window.getModule() != null) {
-              moduleId = window.getModule().getId();
-              moduleName = window.getModule().getName();
-              moduleJavapackage = window.getModule().getJavaPackage();
-              moduleVersion = window.getModule().getVersion();
-            }
-          }
-        } catch (Exception e) {
-          log.warn("Could not fetch window info for tab object_id: " + audit.getObject(), e);
-        }
-      } else if (StringUtils.equals("P", objectType)) {
-        // It's a process - object_id points directly to ad_process_id
-        try {
-          Process process = OBDal.getInstance().get(Process.class, audit.getObject());
-          if (process != null) {
-            processId = process.getId();
-            processName = process.getName();
-            // Get module from process
-            if (process.getModule() != null) {
-              moduleId = process.getModule().getId();
-              moduleName = process.getModule().getName();
-              moduleJavapackage = process.getModule().getJavaPackage();
-              moduleVersion = process.getModule().getVersion();
-            }
-          }
-        } catch (Exception e) {
-          log.warn("Could not fetch process info for object_id: " + audit.getObject(), e);
-        }
-      }
-
-      // Set module fields (from window/process module, not audit module)
-      auditNode.put("module_id", moduleId);
-      auditNode.put("module_name", moduleName);
-      auditNode.put("module_javapackage", moduleJavapackage);
-      auditNode.put("module_version", moduleVersion);
-
-      // Get core version
-      try {
-        Module coreModule = OBDal.getInstance().get(Module.class, "0");
-        auditNode.put("core_version", coreModule != null ? coreModule.getVersion() : "");
-      } catch (Exception e) {
-        auditNode.put("core_version", "");
-      }
-
-      auditNode.put("object_id", audit.getObject());
-      auditNode.put("object_type", objectType);
-      auditNode.put("window_id", windowId);
-      auditNode.put("window_name", windowName);
-      auditNode.put("process_id", processId);
-      auditNode.put("process_name", processName);
-      auditNode.put("record_count", 0);
-      auditNode.put("created", formatTimestamp(audit.getCreationDate()));
-      auditNode.put("created_by", audit.getCreatedBy() != null ? audit.getCreatedBy().getId() : null);
-      auditNode.put("ip", audit.getSession() != null ? audit.getSession().getRemoteAddress() : null);
+    for (SessionUsageAudit audit : audits) {
+      ObjectNode auditNode = createAuditNode(audit, mapper);
       auditsArray.add(auditNode);
     }
+  }
 
-    return mapper.writeValueAsString(root);
+  private ObjectNode createAuditNode(SessionUsageAudit audit, ObjectMapper mapper) {
+    ObjectNode auditNode = mapper.createObjectNode();
+    auditNode.put("usage_audit_id", audit.getId());
+    auditNode.put("session_id", audit.getSession() != null ? audit.getSession().getId() : null);
+    auditNode.put("username", audit.getSession() != null ? audit.getSession().getUsername() : null);
+    auditNode.put("command", audit.getCommand());
+    auditNode.put("execution_time", formatTimestamp(audit.getCreationDate()));
+    auditNode.put("process_time_ms", audit.getProcessTime() != null ? audit.getProcessTime().doubleValue() : null);
+
+    // Determine object type and fetch window/process information
+    String objectType = determineObjectType(audit.getCommand());
+    AuditObjectInfo objectInfo = fetchAuditObjectInfo(audit.getObject(), objectType);
+    
+    populateAuditNodeWithObjectInfo(auditNode, objectInfo, objectType);
+    addAuditMetadata(auditNode, audit);
+    
+    return auditNode;
+  }
+
+  private String determineObjectType(String command) {
+    return StringUtils.equals("DEFAULT", command) ? "P" : "W";
+  }
+
+  private AuditObjectInfo fetchAuditObjectInfo(String objectId, String objectType) {
+    if (StringUtils.equals("W", objectType)) {
+      return fetchWindowInfo(objectId);
+    } else if (StringUtils.equals("P", objectType)) {
+      return fetchProcessInfo(objectId);
+    }
+    return new AuditObjectInfo();
+  }
+
+  private AuditObjectInfo fetchWindowInfo(String tabId) {
+    try {
+      Tab tab = OBDal.getInstance().get(Tab.class, tabId);
+      if (tab != null && tab.getWindow() != null) {
+        Window window = tab.getWindow();
+        AuditObjectInfo info = new AuditObjectInfo();
+        info.windowId = window.getId();
+        info.windowName = window.getName();
+        if (window.getModule() != null) {
+          info.moduleId = window.getModule().getId();
+          info.moduleName = window.getModule().getName();
+          info.moduleJavapackage = window.getModule().getJavaPackage();
+          info.moduleVersion = window.getModule().getVersion();
+        }
+        return info;
+      }
+    } catch (Exception e) {
+      log.warn("Could not fetch window info for tab object_id: " + tabId, e);
+    }
+    return new AuditObjectInfo();
+  }
+
+  private AuditObjectInfo fetchProcessInfo(String processId) {
+    try {
+      Process process = OBDal.getInstance().get(Process.class, processId);
+      if (process != null) {
+        AuditObjectInfo info = new AuditObjectInfo();
+        info.processId = process.getId();
+        info.processName = process.getName();
+        if (process.getModule() != null) {
+          info.moduleId = process.getModule().getId();
+          info.moduleName = process.getModule().getName();
+          info.moduleJavapackage = process.getModule().getJavaPackage();
+          info.moduleVersion = process.getModule().getVersion();
+        }
+        return info;
+      }
+    } catch (Exception e) {
+      log.warn("Could not fetch process info for object_id: " + processId, e);
+    }
+    return new AuditObjectInfo();
+  }
+
+  private void populateAuditNodeWithObjectInfo(ObjectNode auditNode, AuditObjectInfo info, String objectType) {
+    auditNode.put("module_id", info.moduleId);
+    auditNode.put("module_name", info.moduleName);
+    auditNode.put("module_javapackage", info.moduleJavapackage);
+    auditNode.put("module_version", info.moduleVersion);
+    auditNode.put("object_type", objectType);
+    auditNode.put("window_id", info.windowId);
+    auditNode.put("window_name", info.windowName);
+    auditNode.put("process_id", info.processId);
+    auditNode.put("process_name", info.processName);
+  }
+
+  private void addAuditMetadata(ObjectNode auditNode, SessionUsageAudit audit) {
+    try {
+      Module coreModule = OBDal.getInstance().get(Module.class, "0");
+      auditNode.put("core_version", coreModule != null ? coreModule.getVersion() : "");
+    } catch (Exception e) {
+      auditNode.put("core_version", "");
+    }
+
+    auditNode.put("object_id", audit.getObject());
+    auditNode.put("record_count", 0);
+    auditNode.put("created", formatTimestamp(audit.getCreationDate()));
+    auditNode.put("created_by", audit.getCreatedBy() != null ? audit.getCreatedBy().getId() : null);
+    auditNode.put("ip", audit.getSession() != null ? audit.getSession().getRemoteAddress() : null);
+  }
+
+  /**
+   * Helper class to hold audit object information
+   */
+  private static class AuditObjectInfo {
+    String moduleId;
+    String moduleName;
+    String moduleJavapackage;
+    String moduleVersion;
+    String windowId;
+    String windowName;
+    String processId;
+    String processName;
   }
 
   /**
@@ -370,7 +408,7 @@ public class AnalyticsSyncService {
       case "S":
         return SUCCESS;
       case "F":
-        return "FAILED";
+        return FAILED;
       case "L":
         return "LOCKED";
       default:
@@ -382,7 +420,7 @@ public class AnalyticsSyncService {
    * Build JSON payload for MODULE_METADATA sync type
    * Format follows module_metadata_v1 schema
    */
-  private String buildModuleMetadataPayload(String instanceName, List<Module> modules) throws JsonProcessingException {
+  private String buildModulesPayload(List<Module> modules, String instanceName) throws JsonProcessingException {
     ObjectMapper mapper = new ObjectMapper();
     ObjectNode root = mapper.createObjectNode();
 
@@ -410,6 +448,55 @@ public class AnalyticsSyncService {
     }
 
     return mapper.writeValueAsString(root);
+  }
+
+  private void saveSuccessfulSync(String syncType, String jobId, int recordsCount) {
+    try {
+      OBContext.setAdminMode(true);
+      AnalyticsSync syncRecord = OBProvider.getInstance().get(AnalyticsSync.class);
+      
+      syncRecord.setClient(OBDal.getInstance().get(Client.class, "0"));
+      syncRecord.setOrganization(
+          OBDal.getInstance().get(org.openbravo.model.common.enterprise.Organization.class, "0"));
+      syncRecord.setActive(true);
+      syncRecord.setSyncType(syncType);
+      syncRecord.setLastSync(new java.util.Date());
+      syncRecord.setLastStatus(SUCCESS);
+      
+      StringBuilder logMessage = new StringBuilder();
+      logMessage.append(JOB_ID).append(jobId).append("\n");
+      logMessage.append("Records: ").append(recordsCount);
+      syncRecord.setLog(logMessage.toString());
+      
+      OBDal.getInstance().save(syncRecord);
+      OBDal.getInstance().flush();
+      logDebug("Sync state persisted with job ID: " + jobId);
+    } finally {
+      OBContext.restorePreviousMode();
+    }
+  }
+
+  private void saveFailedSync(String syncType, String errorMessage) {
+    try {
+      OBContext.setAdminMode(true);
+      AnalyticsSync syncRecord = OBProvider.getInstance().get(AnalyticsSync.class);
+      
+      syncRecord.setClient(OBDal.getInstance().get(Client.class, "0"));
+      syncRecord.setOrganization(
+          OBDal.getInstance().get(org.openbravo.model.common.enterprise.Organization.class, "0"));
+      syncRecord.setActive(true);
+      syncRecord.setSyncType(syncType);
+      syncRecord.setLastSync(new java.util.Date());
+      syncRecord.setLastStatus(FAILED);
+      syncRecord.setLog("Error: " + errorMessage);
+      
+      OBDal.getInstance().save(syncRecord);
+      OBDal.getInstance().flush();
+    } catch (Exception e) {
+      logError("Failed to save error state: " + e.getMessage());
+    } finally {
+      OBContext.restorePreviousMode();
+    }
   }
 
   /**
@@ -468,63 +555,6 @@ public class AnalyticsSyncService {
   /**
    * Persist sync state to database
    */
-  private void persistSyncState(String syncType, SyncResult result) {
-    try {
-      OBContext.setAdminMode(true);
-
-      // Create new AnalyticsSync object
-      AnalyticsSync syncRecord = OBProvider.getInstance().get(AnalyticsSync.class);
-
-      // Set required fields
-      syncRecord.setClient(OBDal.getInstance().get(Client.class, "0"));
-      syncRecord.setOrganization(
-          OBDal.getInstance().get(org.openbravo.model.common.enterprise.Organization.class, "0"));
-      syncRecord.setActive(true);
-
-      // Set sync specific fields
-      syncRecord.setSyncType(syncType);
-      // Convert Timestamp to Date for entity
-      java.util.Date lastSyncDate = result.getEndTime() != null ? new java.util.Date(
-          result.getEndTime().getTime()) : null;
-      log.info("Setting lastSync date: {} (from endTime: {})", lastSyncDate, result.getEndTime());
-      syncRecord.setLastSync(lastSyncDate);
-      syncRecord.setLastStatus(result.getStatus());
-
-      // Build log message
-      StringBuilder logMessage = new StringBuilder();
-      logMessage.append(JOB_ID).append(result.getJobId() != null ? result.getJobId() : "N/A").append("\n");
-      if (result.getSessionsCount() > 0) {
-        logMessage.append("Sessions: ").append(result.getSessionsCount()).append("\n");
-      }
-      if (result.getAuditsCount() > 0) {
-        logMessage.append("Audits: ").append(result.getAuditsCount()).append("\n");
-      }
-      if (result.getModulesCount() > 0) {
-        logMessage.append("Modules: ").append(result.getModulesCount()).append("\n");
-      }
-      logMessage.append("Message: ").append(result.getMessage());
-      if (result.getError() != null) {
-        logMessage.append("\nError: ").append(result.getError().getMessage());
-      }
-
-      syncRecord.setLog(logMessage.toString());
-
-      // Save to database
-      OBDal.getInstance().save(syncRecord);
-      OBDal.getInstance().flush();
-
-      // Verify the value was persisted
-      java.util.Date verifyDate = syncRecord.getLastSync();
-      log.info("Persisted sync state record with ID: {} | LastSync after save: {}", syncRecord.getId(), verifyDate);
-      if (verifyDate == null) {
-        log.warn("WARNING: LastSync is still NULL after persist!");
-      }
-
-    } finally {
-      OBContext.restorePreviousMode();
-    }
-  }
-
   /**
    * Health check - get last sync status
    */

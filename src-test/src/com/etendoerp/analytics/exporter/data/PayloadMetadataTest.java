@@ -18,11 +18,17 @@ public class PayloadMetadataTest {
 
   private PayloadMetadata metadata;
 
+  /**
+   * Sets up test fixtures before each test execution.
+   */
   @Before
   public void setUp() {
     metadata = new PayloadMetadata();
   }
 
+  /**
+   * Tests setting and getting the source instance.
+   */
   @Test
   public void testSetAndGetSourceInstance() {
     String sourceInstance = "production-erp";
@@ -30,6 +36,9 @@ public class PayloadMetadataTest {
     assertEquals(sourceInstance, metadata.getSourceInstance());
   }
 
+  /**
+   * Tests setting and getting the export timestamp.
+   */
   @Test
   public void testSetAndGetExportTimestamp() {
     String timestamp = "2026-01-14T10:30:00.000000+00:00";
@@ -37,6 +46,9 @@ public class PayloadMetadataTest {
     assertEquals(timestamp, metadata.getExportTimestamp());
   }
 
+  /**
+   * Tests setting and getting the exporter version.
+   */
   @Test
   public void testSetAndGetExporterVersion() {
     String version = "1.0.0";
@@ -44,6 +56,9 @@ public class PayloadMetadataTest {
     assertEquals(version, metadata.getExporterVersion());
   }
 
+  /**
+   * Tests setting and getting the days exported value.
+   */
   @Test
   public void testSetAndGetDaysExported() {
     Integer days = 7;
@@ -51,6 +66,9 @@ public class PayloadMetadataTest {
     assertEquals(days, metadata.getDaysExported());
   }
 
+  /**
+   * Tests that metadata handles null values correctly.
+   */
   @Test
   public void testMetadataWithNullValues() {
     PayloadMetadata nullMetadata = new PayloadMetadata();
@@ -62,6 +80,9 @@ public class PayloadMetadataTest {
     assertNull(nullMetadata.getDaysExported());
   }
 
+  /**
+   * Tests setting up complete metadata with all fields populated.
+   */
   @Test
   public void testCompleteMetadataSetup() {
     metadata.setSourceInstance("test-instance");
@@ -80,18 +101,27 @@ public class PayloadMetadataTest {
     assertEquals(Integer.valueOf(14), metadata.getDaysExported());
   }
 
+  /**
+   * Tests metadata with zero days exported.
+   */
   @Test
   public void testMetadataWithZeroDays() {
     metadata.setDaysExported(0);
     assertEquals(Integer.valueOf(0), metadata.getDaysExported());
   }
 
+  /**
+   * Tests metadata with negative days exported value.
+   */
   @Test
   public void testMetadataWithNegativeDays() {
     metadata.setDaysExported(-1);
     assertEquals(Integer.valueOf(-1), metadata.getDaysExported());
   }
 
+  /**
+   * Tests metadata with large days exported value.
+   */
   @Test
   public void testMetadataWithLargeDaysValue() {
     Integer largeDays = 365;
@@ -99,6 +129,9 @@ public class PayloadMetadataTest {
     assertEquals(largeDays, metadata.getDaysExported());
   }
 
+  /**
+   * Tests source instance with special characters.
+   */
   @Test
   public void testSourceInstanceWithSpecialCharacters() {
     String instanceWithSpecialChars = "production_erp-2024";
@@ -106,6 +139,9 @@ public class PayloadMetadataTest {
     assertEquals(instanceWithSpecialChars, metadata.getSourceInstance());
   }
 
+  /**
+   * Tests source instance containing spaces.
+   */
   @Test
   public void testSourceInstanceWithSpaces() {
     String instanceWithSpaces = "production erp";
@@ -113,6 +149,9 @@ public class PayloadMetadataTest {
     assertEquals(instanceWithSpaces, metadata.getSourceInstance());
   }
 
+  /**
+   * Tests export timestamp in ISO-8601 format.
+   */
   @Test
   public void testExportTimestampISO8601Format() {
     String iso8601Timestamp = "2026-01-14T10:30:00.123456+00:00";
@@ -120,6 +159,9 @@ public class PayloadMetadataTest {
     assertEquals(iso8601Timestamp, metadata.getExportTimestamp());
   }
 
+  /**
+   * Tests export timestamp with different timezone.
+   */
   @Test
   public void testExportTimestampWithDifferentTimezone() {
     String timestampWithTZ = "2026-01-14T10:30:00.000000+05:30";
@@ -127,6 +169,9 @@ public class PayloadMetadataTest {
     assertEquals(timestampWithTZ, metadata.getExportTimestamp());
   }
 
+  /**
+   * Tests exporter version with semantic versioning format.
+   */
   @Test
   public void testExporterVersionSemantic() {
     String semanticVersion = "1.2.3";
@@ -134,6 +179,9 @@ public class PayloadMetadataTest {
     assertEquals(semanticVersion, metadata.getExporterVersion());
   }
 
+  /**
+   * Tests exporter version with pre-release identifier.
+   */
   @Test
   public void testExporterVersionWithPreRelease() {
     String preReleaseVersion = "1.0.0-beta.1";
@@ -141,6 +189,9 @@ public class PayloadMetadataTest {
     assertEquals(preReleaseVersion, metadata.getExporterVersion());
   }
 
+  /**
+   * Tests exporter version with build metadata.
+   */
   @Test
   public void testExporterVersionWithBuildMetadata() {
     String versionWithBuild = "1.0.0+20210101";
@@ -148,6 +199,9 @@ public class PayloadMetadataTest {
     assertEquals(versionWithBuild, metadata.getExporterVersion());
   }
 
+  /**
+   * Tests that metadata values can be modified after creation.
+   */
   @Test
   public void testMetadataModification() {
     metadata.setSourceInstance("original");
@@ -157,6 +211,9 @@ public class PayloadMetadataTest {
     assertEquals("modified", metadata.getSourceInstance());
   }
 
+  /**
+   * Tests that multiple metadata instances are independent.
+   */
   @Test
   public void testMultipleMetadataInstances() {
     PayloadMetadata metadata1 = new PayloadMetadata();
@@ -169,6 +226,9 @@ public class PayloadMetadataTest {
     assertEquals("instance2", metadata2.getSourceInstance());
   }
 
+  /**
+   * Tests metadata with empty string values.
+   */
   @Test
   public void testMetadataWithEmptyStrings() {
     metadata.setSourceInstance("");
@@ -180,6 +240,9 @@ public class PayloadMetadataTest {
     assertEquals("", metadata.getExporterVersion());
   }
 
+  /**
+   * Tests that metadata values can be overwritten multiple times.
+   */
   @Test
   public void testMetadataOverwrite() {
     metadata.setSourceInstance("first");
@@ -189,6 +252,9 @@ public class PayloadMetadataTest {
     assertEquals("third", metadata.getSourceInstance());
   }
 
+  /**
+   * Tests changing days exported from null to a value.
+   */
   @Test
   public void testDaysExportedNullToValue() {
     assertNull(metadata.getDaysExported());
@@ -196,6 +262,9 @@ public class PayloadMetadataTest {
     assertEquals(Integer.valueOf(30), metadata.getDaysExported());
   }
 
+  /**
+   * Tests changing days exported from a value to null.
+   */
   @Test
   public void testDaysExportedValueToNull() {
     metadata.setDaysExported(30);

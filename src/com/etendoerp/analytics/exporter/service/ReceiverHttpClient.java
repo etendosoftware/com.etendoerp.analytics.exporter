@@ -8,7 +8,7 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 
-import org.apache.commons.lang.StringUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.openbravo.base.exception.OBException;
@@ -31,10 +31,17 @@ public class ReceiverHttpClient {
   private final String receiverUrl;
   private final ObjectMapper objectMapper;
 
+  /**
+   * Default constructor that uses the default receiver URL.
+   */
   public ReceiverHttpClient() {
     this(DEFAULT_RECEIVER_URL);
   }
 
+  /**
+   * Constructor that allows specifying a custom receiver URL.
+   * @param receiverUrl the URL of the receiver service
+   */
   public ReceiverHttpClient(String receiverUrl) {
     this.receiverUrl = StringUtils.isNotBlank(receiverUrl) ? receiverUrl : DEFAULT_RECEIVER_URL;
     this.objectMapper = new ObjectMapper();
@@ -86,47 +93,13 @@ public class ReceiverHttpClient {
         log.debug("Receiver responded with status code: {}", responseCode);
 
         // Read response
-        StringBuilder response = new StringBuilder();
-        try (BufferedReader br = new BufferedReader(
-            new InputStreamReader(
-                responseCode >= 400 ? conn.getErrorStream() : conn.getInputStream(),
-                StandardCharsets.UTF_8))) {
-          String line;
-          while ((line = br.readLine()) != null) {
-            response.append(line);
-          }
-        }
-
-        String responseBody = response.toString();
+        String responseBody = readResponseBody(conn, responseCode);
         log.debug("Response body: {}", responseBody);
 
         // Handle response codes
-        if (responseCode == 202) {
-          // Success - parse response
-          ReceiverResponse receiverResponse = objectMapper.readValue(responseBody, ReceiverResponse.class);
-          log.debug("Data accepted successfully. Job ID: {}", receiverResponse.getJobId());
-          return receiverResponse;
-
-        } else if (responseCode >= 500) {
-          // Server error - retry
-          log.warn("Server error ({}), will retry. Response: {}", responseCode, responseBody);
-          lastException = new Exception("Server error: " + responseCode + " - " + responseBody);
-
-          if (attempt < MAX_RETRIES) {
-            log.debug("Waiting {} ms before retry...", RETRY_DELAY_MS);
-            Thread.sleep(RETRY_DELAY_MS);
-          }
-
-        } else if (responseCode >= 400) {
-          // Client error - don't retry
-          String errorMsg = "Client error: " + responseCode + " - " + responseBody;
-          log.error(errorMsg);
-          throw new OBException(errorMsg);
-
-        } else {
-          // Unexpected success code
-          log.warn("Unexpected response code: {}", responseCode);
-          throw new OBException("Unexpected response code: " + responseCode);
+        ReceiverResponse result = handleResponseCode(responseCode, responseBody, attempt);
+        if (result != null) {
+          return result;
         }
 
       } catch (Exception e) {
@@ -146,6 +119,55 @@ public class ReceiverHttpClient {
     String errorMsg = "Failed to send data after " + MAX_RETRIES + " attempts";
     log.error(errorMsg);
     throw new OBException(errorMsg, lastException);
+  }
+
+  /**
+   * Read response body from connection.
+   */
+  private String readResponseBody(HttpURLConnection conn, int responseCode) throws IOException {
+    StringBuilder response = new StringBuilder();
+    try (BufferedReader br = new BufferedReader(
+        new InputStreamReader(
+            responseCode >= 400 ? conn.getErrorStream() : conn.getInputStream(),
+            StandardCharsets.UTF_8))) {
+      String line;
+      while ((line = br.readLine()) != null) {
+        response.append(line);
+      }
+    }
+    return response.toString();
+  }
+
+  /**
+   * Handle response code and return ReceiverResponse if successful, null if retry is needed.
+   */
+  private ReceiverResponse handleResponseCode(int responseCode, String responseBody, int attempt) throws Exception {
+    if (responseCode == 202) {
+      // Success - parse response
+      ReceiverResponse receiverResponse = objectMapper.readValue(responseBody, ReceiverResponse.class);
+      log.debug("Data accepted successfully. Job ID: {}", receiverResponse.getJobId());
+      return receiverResponse;
+
+    } else if (responseCode >= 500) {
+      // Server error - retry
+      log.warn("Server error ({}), will retry. Response: {}", responseCode, responseBody);
+      if (attempt < MAX_RETRIES) {
+        log.debug("Waiting {} ms before retry...", RETRY_DELAY_MS);
+        Thread.sleep(RETRY_DELAY_MS);
+      }
+      return null; // Signal to retry
+
+    } else if (responseCode >= 400) {
+      // Client error - don't retry
+      String errorMsg = "Client error: " + responseCode + " - " + responseBody;
+      log.error(errorMsg);
+      throw new OBException(errorMsg);
+
+    } else {
+      // Unexpected success code
+      log.warn("Unexpected response code: {}", responseCode);
+      throw new OBException("Unexpected response code: " + responseCode);
+    }
   }
 
   private HttpURLConnection getHttpURLConnection(String jsonPayload) throws IOException {
@@ -191,10 +213,12 @@ public class ReceiverHttpClient {
   public static class ReceiverResponse {
     private String status;
 
+    @SuppressWarnings("java:S116") // Field name matches JSON API format
     private String job_id;
 
     private String message;
 
+    @SuppressWarnings("java:S116") // Field name matches JSON API format
     private Integer queue_position;
 
     private String error;
@@ -211,8 +235,8 @@ public class ReceiverHttpClient {
       return job_id;
     }
 
-    public void setJob_id(String job_id) {
-      this.job_id = job_id;
+    public void setJobId(String jobId) {
+      this.job_id = jobId;
     }
 
     public String getMessage() {
@@ -227,8 +251,8 @@ public class ReceiverHttpClient {
       return queue_position;
     }
 
-    public void setQueue_position(Integer queue_position) {
-      this.queue_position = queue_position;
+    public void setQueuePosition(Integer queuePosition) {
+      this.queue_position = queuePosition;
     }
 
     public String getError() {

@@ -59,5 +59,6 @@
       <foreign-key foreignTable="AD_ORG" name="ETAE_ANALYTICS_SYNC_AD_ORG">
         <reference local="AD_ORG_ID" foreign="AD_ORG_ID"/>
       </foreign-key>
+      <check name="ETAE_ANALYTICS_SYNC_ISACTIVE"><![CDATA[ISACTIVE IN ('Y', 'N')]]></check>
     </table>
   </database>

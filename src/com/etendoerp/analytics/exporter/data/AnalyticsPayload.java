@@ -24,6 +24,9 @@ public class AnalyticsPayload {
   @JsonProperty("usage_audits")
   private List<SessionUsageAudit> usageAudits;
 
+  /**
+   * Default constructor that initializes the payload with schema version and empty collections.
+   */
   public AnalyticsPayload() {
     this.schemaVersion = "1.0";
     this.metadata = new PayloadMetadata();
