@@ -52,7 +52,8 @@ public class AnalyticsSyncService {
   private ProcessLogger processLogger;
 
   /**
-   * Default constructor that initializes the service with default receiver URL.
+   * Default constructor that initializes the service.
+   * ReceiverHttpClient will use preference URL if configured, otherwise default URL.
    */
   public AnalyticsSyncService() {
     this.extractionService = new DataExtractionService();

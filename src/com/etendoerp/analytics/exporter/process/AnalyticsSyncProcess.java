@@ -36,18 +36,8 @@ public class AnalyticsSyncProcess implements Process {
     try {
       OBContext.setAdminMode(true);
 
-      // Get receiver URL from preference if configured
-      String receiverUrl = getReceiverUrlFromPreference();
-
-      // Initialize sync service
-      AnalyticsSyncService syncService;
-      if (receiverUrl != null && !receiverUrl.trim().isEmpty()) {
-        syncService = new AnalyticsSyncService(receiverUrl);
-        logger.log("Using custom receiver URL: " + receiverUrl + "\n");
-      } else {
-        syncService = new AnalyticsSyncService();
-        logger.log("Using default receiver URL\n");
-      }
+      // Initialize sync service (will use preference URL if configured)
+      AnalyticsSyncService syncService = new AnalyticsSyncService();
 
       // Set the process logger so service can log to process monitor
       syncService.setProcessLogger(logger);
@@ -117,18 +107,6 @@ public class AnalyticsSyncProcess implements Process {
     } finally {
       OBContext.restorePreviousMode();
       OBDal.getInstance().commitAndClose();
-    }
-  }
-
-  /**
-   * Get receiver URL from preferences
-   */
-  private String getReceiverUrlFromPreference() {
-    try {
-      return null;
-    } catch (Exception e) {
-      log.warn("Could not load receiver URL from preferences", e);
-      return null;
     }
   }
 }

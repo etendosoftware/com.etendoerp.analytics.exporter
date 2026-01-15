@@ -12,6 +12,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.openbravo.base.exception.OBException;
+import org.openbravo.erpCommon.businessUtility.Preferences;
 
 import com.etendoerp.analytics.exporter.data.AnalyticsPayload;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
@@ -32,15 +33,17 @@ public class ReceiverHttpClient {
   private final ObjectMapper objectMapper;
 
   /**
-   * Default constructor that uses the default receiver URL.
+   * Default constructor that uses preference URL if available, otherwise default receiver URL.
    */
   public ReceiverHttpClient() {
-    this(DEFAULT_RECEIVER_URL);
+    this(getReceiverUrlFromPreference());
   }
 
   /**
    * Constructor that allows specifying a custom receiver URL.
-   * @param receiverUrl the URL of the receiver service
+   *
+   * @param receiverUrl
+   *     the URL of the receiver service
    */
   public ReceiverHttpClient(String receiverUrl) {
     this.receiverUrl = StringUtils.isNotBlank(receiverUrl) ? receiverUrl : DEFAULT_RECEIVER_URL;
@@ -261,6 +264,21 @@ public class ReceiverHttpClient {
 
     public void setError(String error) {
       this.error = error;
+    }
+  }
+
+  /**
+   * Get receiver URL from preferences
+   *
+   * @return the configured receiver URL from preferences, or null if not configured
+   */
+  public static String getReceiverUrlFromPreference() {
+    try {
+      return Preferences.getPreferenceValue("ETAE_ReceiverURL", true,
+          "", "", "", "", "");
+    } catch (Exception e) {
+      log.warn("Could not load receiver URL from preferences", e);
+      return null;
     }
   }
 }

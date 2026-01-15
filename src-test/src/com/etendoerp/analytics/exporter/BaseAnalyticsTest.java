@@ -17,6 +17,7 @@ import org.openbravo.base.structure.BaseOBObject;
 import org.openbravo.dal.core.OBContext;
 import org.openbravo.dal.service.OBCriteria;
 import org.openbravo.dal.service.OBDal;
+import org.openbravo.erpCommon.businessUtility.Preferences;
 
 /**
  * Base class for Analytics Exporter tests.
@@ -29,6 +30,7 @@ public abstract class BaseAnalyticsTest {
 
   protected MockedStatic<OBContext> mockedContext;
   protected MockedStatic<OBDal> mockedDal;
+  protected MockedStatic<Preferences> mockedPreferences;
 
   /**
    * Sets up common mocked static objects before each test.
@@ -38,6 +40,11 @@ public abstract class BaseAnalyticsTest {
     mockedContext = mockStatic(OBContext.class);
     mockedDal = mockStatic(OBDal.class);
     mockedDal.when(OBDal::getInstance).thenReturn(mockOBDal);
+    
+    // Mock Preferences to return null (will use default URL)
+    mockedPreferences = mockStatic(Preferences.class);
+    mockedPreferences.when(() -> Preferences.getPreferenceValue(anyString(), anyBoolean(), 
+        anyString(), anyString(), anyString(), anyString(), anyString())).thenReturn(null);
   }
 
   /**
@@ -50,6 +57,9 @@ public abstract class BaseAnalyticsTest {
     }
     if (mockedDal != null) {
       mockedDal.close();
+    }
+    if (mockedPreferences != null) {
+      mockedPreferences.close();
     }
   }
 
