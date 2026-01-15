@@ -1,11 +1,11 @@
 package com.etendoerp.analytics.exporter.service;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 
-import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.mockito.junit.MockitoJUnitRunner;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.junit.jupiter.MockitoExtension;
 
 /**
  * Unit tests for ReceiverHttpClient
@@ -15,7 +15,7 @@ import org.mockito.junit.MockitoJUnitRunner;
  * from unit tests. Those should be tested in integration tests using tools like
  * WireMock or MockWebServer for proper HTTP behavior verification.
  */
-@RunWith(MockitoJUnitRunner.class)
+@ExtendWith(MockitoExtension.class)
 public class ReceiverHttpClientTest {
 
   private static final String TEST_RECEIVER_URL = "https://test.receiver.com/process";

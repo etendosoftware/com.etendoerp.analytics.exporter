@@ -1,8 +1,9 @@
 package com.etendoerp.analytics.exporter.process;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -16,14 +17,14 @@ import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import javax.servlet.http.HttpSession;
 
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Test;
-import org.junit.runner.RunWith;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.MockedConstruction;
 import org.mockito.Mockito;
-import org.mockito.junit.MockitoJUnitRunner;
+import org.mockito.junit.jupiter.MockitoExtension;
 import org.openbravo.base.secureApp.VariablesSecureApp;
 
 import com.etendoerp.analytics.exporter.service.AnalyticsSyncService;
@@ -33,7 +34,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
  * Unit tests for AnalyticsHealthCheck servlet
  * Tests health check endpoint responses and error handling
  */
-@RunWith(MockitoJUnitRunner.class)
+@ExtendWith(MockitoExtension.class)
 public class AnalyticsHealthCheckTest {
 
   public static final String LOGGININ = "#LOGGININ";
@@ -60,20 +61,20 @@ public class AnalyticsHealthCheckTest {
    * Sets up test fixtures and mocks before each test execution.
    * @throws Exception if setup fails
    */
-  @Before
+  @BeforeEach
   public void setUp() throws Exception {
     servlet = new AnalyticsHealthCheck();
 
     // Setup response writer
     responseWriter = new StringWriter();
     PrintWriter printWriter = new PrintWriter(responseWriter);
-    when(mockResponse.getWriter()).thenReturn(printWriter);
+    lenient().when(mockResponse.getWriter()).thenReturn(printWriter);
   }
 
   /**
    * Cleans up mocked construction objects after each test execution.
    */
-  @After
+  @AfterEach
   public void tearDown() {
     if (mockedVars != null) {
       mockedVars.close();

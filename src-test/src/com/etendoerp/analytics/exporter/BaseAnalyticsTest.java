@@ -9,8 +9,8 @@ import static org.mockito.Mockito.when;
 
 import org.hibernate.criterion.Criterion;
 import org.hibernate.criterion.Order;
-import org.junit.After;
-import org.junit.Before;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.mockito.Mock;
 import org.mockito.MockedStatic;
 import org.openbravo.base.structure.BaseOBObject;
@@ -35,7 +35,7 @@ public abstract class BaseAnalyticsTest {
   /**
    * Sets up common mocked static objects before each test.
    */
-  @Before
+  @BeforeEach
   public void baseSetUp() {
     mockedContext = mockStatic(OBContext.class);
     mockedDal = mockStatic(OBDal.class);
@@ -50,7 +50,7 @@ public abstract class BaseAnalyticsTest {
   /**
    * Cleans up mocked static objects after each test.
    */
-  @After
+  @AfterEach
   public void baseTearDown() {
     if (mockedContext != null) {
       mockedContext.close();

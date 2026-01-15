@@ -1,19 +1,19 @@
 package com.etendoerp.analytics.exporter.data;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNull;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 
-import org.junit.Before;
-import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.mockito.junit.MockitoJUnitRunner;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.junit.jupiter.MockitoExtension;
 
 /**
  * Unit tests for PayloadMetadata
  * Tests the metadata container class for analytics export
  */
-@RunWith(MockitoJUnitRunner.class)
+@ExtendWith(MockitoExtension.class)
 public class PayloadMetadataTest {
 
   private PayloadMetadata metadata;
@@ -21,7 +21,7 @@ public class PayloadMetadataTest {
   /**
    * Sets up test fixtures before each test execution.
    */
-  @Before
+  @BeforeEach
   public void setUp() {
     metadata = new PayloadMetadata();
   }

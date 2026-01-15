@@ -1,16 +1,16 @@
 package com.etendoerp.analytics.exporter.data;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.ArrayList;
 import java.util.List;
 
-import org.junit.Before;
-import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.mockito.junit.MockitoJUnitRunner;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.junit.jupiter.MockitoExtension;
 import org.openbravo.model.ad.access.Session;
 import org.openbravo.model.ad.access.SessionUsageAudit;
 
@@ -18,7 +18,7 @@ import org.openbravo.model.ad.access.SessionUsageAudit;
  * Unit tests for AnalyticsPayload
  * Tests the data container class for analytics export
  */
-@RunWith(MockitoJUnitRunner.class)
+@ExtendWith(MockitoExtension.class)
 public class AnalyticsPayloadTest {
 
   public static final String EXPORTER_VERSION = "1.0.0";
@@ -31,7 +31,7 @@ public class AnalyticsPayloadTest {
   /**
    * Sets up test fixtures before each test execution.
    */
-  @Before
+  @BeforeEach
   public void setUp() {
     payload = new AnalyticsPayload();
     metadata = new PayloadMetadata();

@@ -1,9 +1,9 @@
 package com.etendoerp.analytics.exporter.service;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.lenient;
@@ -19,13 +19,13 @@ import java.util.Date;
 import java.util.List;
 
 import org.hibernate.criterion.Criterion;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Test;
-import org.junit.runner.RunWith;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.MockedStatic;
-import org.mockito.junit.MockitoJUnitRunner;
+import org.mockito.junit.jupiter.MockitoExtension;
 import org.openbravo.base.provider.OBProvider;
 import org.openbravo.dal.core.OBContext;
 import org.openbravo.dal.service.OBCriteria;
@@ -39,7 +39,7 @@ import com.etendoerp.analytics.exporter.data.AnalyticsSync;
  * Unit tests for AnalyticsSyncService
  * Tests orchestration, JSON building, and state persistence
  */
-@RunWith(MockitoJUnitRunner.class)
+@ExtendWith(MockitoExtension.class)
 public class AnalyticsSyncServiceTest extends BaseAnalyticsTest {
 
   public static final String JOB_123 = "job-123";
@@ -69,7 +69,7 @@ public class AnalyticsSyncServiceTest extends BaseAnalyticsTest {
   /**
    * Sets up test fixtures and mocks before each test execution.
    */
-  @Before
+  @BeforeEach
   public void setUp() {
     service = new AnalyticsSyncService();
 
@@ -81,7 +81,7 @@ public class AnalyticsSyncServiceTest extends BaseAnalyticsTest {
   /**
    * Cleans up mocked static objects after each test execution.
    */
-  @After
+  @AfterEach
   public void tearDown() {
     if (mockedSystemInfo != null) {
       mockedSystemInfo.close();

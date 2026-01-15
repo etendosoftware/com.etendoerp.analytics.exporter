@@ -1,8 +1,9 @@
 package com.etendoerp.analytics.exporter.service;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.Mockito.mock;
@@ -18,11 +19,11 @@ import java.util.List;
 
 import org.hibernate.criterion.Criterion;
 import org.hibernate.criterion.Order;
-import org.junit.Before;
-import org.junit.Test;
-import org.junit.runner.RunWith;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
-import org.mockito.junit.MockitoJUnitRunner;
+import org.mockito.junit.jupiter.MockitoExtension;
 import org.openbravo.base.exception.OBException;
 import org.openbravo.dal.core.OBContext;
 import org.openbravo.dal.service.OBCriteria;
@@ -38,7 +39,7 @@ import com.etendoerp.analytics.exporter.data.PayloadMetadata;
  * Unit tests for DataExtractionService
  * Tests data extraction using DAL with proper mocking
  */
-@RunWith(MockitoJUnitRunner.class)
+@ExtendWith(MockitoExtension.class)
 public class DataExtractionServiceTest extends BaseAnalyticsTest {
 
   public static final String TEST_INSTANCE = "test-instance";
@@ -60,7 +61,7 @@ public class DataExtractionServiceTest extends BaseAnalyticsTest {
   /**
    * Sets up test fixtures and mock data before each test execution.
    */
-  @Before
+  @BeforeEach
   public void setUp() {
     service = new DataExtractionService();
     
@@ -160,13 +161,13 @@ public class DataExtractionServiceTest extends BaseAnalyticsTest {
   /**
    * Tests that runtime exceptions are wrapped in OBException during extraction.
    */
-  @Test(expected = OBException.class)
+  @Test
   public void testExtractAnalyticsDataThrowsOBException() {
     // Setup mock to throw exception
     when(mockOBDal.createCriteria(Session.class)).thenThrow(new RuntimeException("Database error"));
     
     // Execute - should wrap exception in OBException
-    service.extractAnalyticsData(TEST_INSTANCE, null, 7);
+    assertThrows(OBException.class, () -> service.extractAnalyticsData(TEST_INSTANCE, null, 7));
   }
 
   /**

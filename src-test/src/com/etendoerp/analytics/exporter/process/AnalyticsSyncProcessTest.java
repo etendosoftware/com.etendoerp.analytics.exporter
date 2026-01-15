@@ -1,20 +1,22 @@
 package com.etendoerp.analytics.exporter.process;
 
-import static org.junit.Assert.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.atLeast;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Test;
-import org.junit.runner.RunWith;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.MockedConstruction;
 import org.mockito.Mockito;
-import org.mockito.junit.MockitoJUnitRunner;
+import org.mockito.junit.jupiter.MockitoExtension;
 import org.openbravo.dal.core.OBContext;
 import org.openbravo.scheduling.ProcessBundle;
 import org.openbravo.scheduling.ProcessLogger;
@@ -27,7 +29,7 @@ import com.etendoerp.analytics.exporter.service.AnalyticsSyncService;
  * Unit tests for AnalyticsSyncProcess
  * Tests orchestration of sync types and error handling
  */
-@RunWith(MockitoJUnitRunner.class)
+@ExtendWith(MockitoExtension.class)
 public class AnalyticsSyncProcessTest extends BaseAnalyticsTest {
 
   public static final String SUCCESS = "SUCCESS";
@@ -45,18 +47,18 @@ public class AnalyticsSyncProcessTest extends BaseAnalyticsTest {
   /**
    * Sets up test fixtures and mocks before each test execution.
    */
-  @Before
+  @BeforeEach
   public void setUp() {
     process = new AnalyticsSyncProcess();
 
     // Setup logger
-    when(mockBundle.getLogger()).thenReturn(mockLogger);
+    lenient().when(mockBundle.getLogger()).thenReturn(mockLogger);
   }
 
   /**
    * Cleans up mocked service construction after each test execution.
    */
-  @After
+  @AfterEach
   public void tearDown() {
     if (mockedService != null) {
       mockedService.close();
@@ -135,7 +137,7 @@ public class AnalyticsSyncProcessTest extends BaseAnalyticsTest {
    * @throws Exception
    *     if test execution fails
    */
-  @Test(expected = JobExecutionException.class)
+  @Test
   public void testExecuteWithPartialFailure() throws Exception {
     // Mock mixed results
     AnalyticsSyncService.SyncResult sessionUsageResult = createSuccessfulSessionResult(10, 20);
@@ -150,7 +152,7 @@ public class AnalyticsSyncProcessTest extends BaseAnalyticsTest {
     });
 
     // Execute - should throw JobExecutionException
-    process.execute(mockBundle);
+    assertThrows(JobExecutionException.class, () -> process.execute(mockBundle));
   }
 
   /**
@@ -159,7 +161,7 @@ public class AnalyticsSyncProcessTest extends BaseAnalyticsTest {
    * @throws Exception
    *     if test execution fails
    */
-  @Test(expected = JobExecutionException.class)
+  @Test
   public void testExecuteWithBothFailures() throws Exception {
     // Mock failed results
     AnalyticsSyncService.SyncResult sessionUsageResult = createFailedResult("Database error");
@@ -174,7 +176,7 @@ public class AnalyticsSyncProcessTest extends BaseAnalyticsTest {
     });
 
     // Execute - should throw exception
-    process.execute(mockBundle);
+    assertThrows(JobExecutionException.class, () -> process.execute(mockBundle));
   }
 
   /**
@@ -183,7 +185,7 @@ public class AnalyticsSyncProcessTest extends BaseAnalyticsTest {
    * @throws Exception
    *     if test execution fails
    */
-  @Test(expected = JobExecutionException.class)
+  @Test
   public void testExecuteWithException() throws Exception {
     // Mock service throwing exception
     mockedService = Mockito.mockConstruction(AnalyticsSyncService.class, (mock, context) -> {
@@ -191,7 +193,7 @@ public class AnalyticsSyncProcessTest extends BaseAnalyticsTest {
     });
 
     // Execute - should wrap in JobExecutionException
-    process.execute(mockBundle);
+    assertThrows(JobExecutionException.class, () -> process.execute(mockBundle));
   }
 
   /**
