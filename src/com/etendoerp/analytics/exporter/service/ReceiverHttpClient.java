@@ -7,15 +7,19 @@ import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.hibernate.criterion.Restrictions;
 import org.openbravo.base.exception.OBException;
-import org.openbravo.erpCommon.businessUtility.Preferences;
+import org.openbravo.dal.service.OBDal;
+import org.openbravo.model.ad.domain.Preference;
 
 import com.etendoerp.analytics.exporter.data.AnalyticsPayload;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 /**
@@ -216,11 +220,13 @@ public class ReceiverHttpClient {
   public static class ReceiverResponse {
     private String status;
 
+    @JsonProperty("job_id")
     @SuppressWarnings("java:S116") // Field name matches JSON API format
     private String job_id;
 
     private String message;
 
+    @JsonProperty("queue_position")
     @SuppressWarnings("java:S116") // Field name matches JSON API format
     private Integer queue_position;
 
@@ -274,8 +280,16 @@ public class ReceiverHttpClient {
    */
   public static String getReceiverUrlFromPreference() {
     try {
-      return Preferences.getPreferenceValue("ETAE_ReceiverURL", true,
-          "", "", "", "", "");
+      List<Preference> preferences = OBDal.getInstance().createCriteria(Preference.class)
+          .add(Restrictions.eq(Preference.PROPERTY_PROPERTY, "ETAE_ReceiverURL"))
+          .list();
+
+      Preference receiverURL = preferences.stream()
+          .filter(Preference::isSelected)
+          .findFirst()
+          .orElse(preferences.get(0));
+
+      return receiverURL.getSearchKey();
     } catch (Exception e) {
       log.warn("Could not load receiver URL from preferences", e);
       return null;
