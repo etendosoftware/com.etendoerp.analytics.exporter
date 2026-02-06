@@ -6,7 +6,7 @@
 <!--4CA56303B48841858AA0502A59CE5672-->  <AD_ORG_ID><![CDATA[0]]></AD_ORG_ID>
 <!--4CA56303B48841858AA0502A59CE5672-->  <ISACTIVE><![CDATA[Y]]></ISACTIVE>
 <!--4CA56303B48841858AA0502A59CE5672-->  <NAME><![CDATA[Etendo Analytics Exporter]]></NAME>
-<!--4CA56303B48841858AA0502A59CE5672-->  <VERSION><![CDATA[1.0.0]]></VERSION>
+<!--4CA56303B48841858AA0502A59CE5672-->  <VERSION><![CDATA[3.0.0]]></VERSION>
 <!--4CA56303B48841858AA0502A59CE5672-->  <DESCRIPTION><![CDATA[Exports Etendo ERP usage, session activity, and system health data to a centralized observability platform using secure, incremental JSON-based synchronization.]]></DESCRIPTION>
 <!--4CA56303B48841858AA0502A59CE5672-->  <TYPE><![CDATA[M]]></TYPE>
 <!--4CA56303B48841858AA0502A59CE5672-->  <LICENSE><![CDATA[Licensed under the Apache License, Version 2.0. You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0.]]></LICENSE>

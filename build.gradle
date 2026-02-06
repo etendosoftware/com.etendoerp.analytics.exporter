@@ -7,7 +7,7 @@
 */
 
 group          = "com.etendoerp"
-version        = "1.0.0"
+version        = "3.0.0"
 description    = "Exports Etendo ERP usage, session activity, and system health data to a centralized observability platform using secure, incremental JSON-based synchronization."
 ext.artifact   = "analytics.exporter"
 ext.repository = "https://maven.pkg.github.com/etendosoftware/com.etendoerp.analytics.exporter"
@@ -61,5 +61,5 @@ sourceSets {
 * Ex: implementation "com.sun.mail:javax.mail:1.6.2"
 */
 dependencies {
-   implementation('com.etendoerp.platform:etendo-core:[23.1.0, 25.1.0)')
+   implementation('com.etendoerp.platform:etendo-core:[25.1.0, 26.1.0)')
 }
