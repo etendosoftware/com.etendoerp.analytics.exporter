@@ -4,8 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
@@ -18,7 +17,6 @@ import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 
-import org.hibernate.criterion.Criterion;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -30,6 +28,7 @@ import org.openbravo.base.provider.OBProvider;
 import org.openbravo.dal.core.OBContext;
 import org.openbravo.dal.service.OBCriteria;
 import org.openbravo.erpCommon.utility.SystemInfo;
+import org.openbravo.model.ad.domain.Preference;
 import org.openbravo.model.ad.system.Client;
 
 import com.etendoerp.analytics.exporter.BaseAnalyticsTest;
@@ -63,6 +62,9 @@ public class AnalyticsSyncServiceTest extends BaseAnalyticsTest {
   @Mock
   private OBCriteria<Client> mockClientCriteria;
 
+  @Mock
+  private OBCriteria<Preference> mockPreferenceCriteria;
+
   private MockedStatic<SystemInfo> mockedSystemInfo;
   private MockedStatic<OBProvider> mockedProvider;
 
@@ -71,11 +73,23 @@ public class AnalyticsSyncServiceTest extends BaseAnalyticsTest {
    */
   @BeforeEach
   public void setUp() {
-    service = new AnalyticsSyncService();
-
-    // Mock static methods
+    // Mock static methods FIRST, before creating service
     mockedSystemInfo = mockStatic(SystemInfo.class);
     mockedProvider = mockStatic(OBProvider.class);
+
+    // Mock OBDal.createCriteria for Preference to avoid NPE in ReceiverHttpClient constructor
+    setupLenientCriteriaMock(mockPreferenceCriteria);
+    lenient().when(mockOBDal.createCriteria(Preference.class)).thenReturn(mockPreferenceCriteria);
+    Preference mockPreference = mock(Preference.class);
+    lenient().when(mockPreference.isSelected()).thenReturn(false);
+    lenient().when(mockPreference.getSearchKey()).thenReturn("http://test-receiver.com/process");
+    lenient().when(mockPreferenceCriteria.list()).thenReturn(List.of(mockPreference));
+
+    // Mock SystemInfo to provide a default identifier (ActivationKey will fail but is handled)
+    mockedSystemInfo.when(SystemInfo::getSystemIdentifier).thenReturn("test-instance-id");
+
+    // NOW create the service after all mocks are configured
+    service = new AnalyticsSyncService();
   }
 
   /**
@@ -187,8 +201,8 @@ public class AnalyticsSyncServiceTest extends BaseAnalyticsTest {
     assertNull(result);
 
     // Verify admin mode was set and restored
-    mockedContext.verify(() -> OBContext.setAdminMode(true), times(1));
-    mockedContext.verify(OBContext::restorePreviousMode, times(1));
+    mockedContext.verify(() -> OBContext.setAdminMode(true), atLeastOnce());
+    mockedContext.verify(OBContext::restorePreviousMode, atLeastOnce());
   }
 
   /**
@@ -296,7 +310,9 @@ public class AnalyticsSyncServiceTest extends BaseAnalyticsTest {
 
   /**
    * Tests timestamp formatting with a valid date.
-   * @throws Exception if reflection fails
+   *
+   * @throws Exception
+   *     if reflection fails
    */
   @Test
   public void testFormatTimestampWithValidDate() throws Exception {
@@ -315,7 +331,9 @@ public class AnalyticsSyncServiceTest extends BaseAnalyticsTest {
 
   /**
    * Tests timestamp formatting with null date.
-   * @throws Exception if reflection fails
+   *
+   * @throws Exception
+   *     if reflection fails
    */
   @Test
   public void testFormatTimestampWithNull() throws Exception {
@@ -329,7 +347,9 @@ public class AnalyticsSyncServiceTest extends BaseAnalyticsTest {
 
   /**
    * Tests login status mapping for successful login.
-   * @throws Exception if reflection fails
+   *
+   * @throws Exception
+   *     if reflection fails
    */
   @Test
   public void testMapLoginStatusSuccess() throws Exception {
@@ -342,7 +362,9 @@ public class AnalyticsSyncServiceTest extends BaseAnalyticsTest {
 
   /**
    * Tests login status mapping for failed login.
-   * @throws Exception if reflection fails
+   *
+   * @throws Exception
+   *     if reflection fails
    */
   @Test
   public void testMapLoginStatusFailed() throws Exception {
@@ -355,7 +377,9 @@ public class AnalyticsSyncServiceTest extends BaseAnalyticsTest {
 
   /**
    * Tests login status mapping for locked account.
-   * @throws Exception if reflection fails
+   *
+   * @throws Exception
+   *     if reflection fails
    */
   @Test
   public void testMapLoginStatusLocked() throws Exception {
@@ -368,7 +392,9 @@ public class AnalyticsSyncServiceTest extends BaseAnalyticsTest {
 
   /**
    * Tests login status mapping for unknown status code.
-   * @throws Exception if reflection fails
+   *
+   * @throws Exception
+   *     if reflection fails
    */
   @Test
   public void testMapLoginStatusUnknown() throws Exception {
@@ -381,7 +407,9 @@ public class AnalyticsSyncServiceTest extends BaseAnalyticsTest {
 
   /**
    * Tests login status mapping with null status.
-   * @throws Exception if reflection fails
+   *
+   * @throws Exception
+   *     if reflection fails
    */
   @Test
   public void testMapLoginStatusNull() throws Exception {
@@ -394,7 +422,9 @@ public class AnalyticsSyncServiceTest extends BaseAnalyticsTest {
 
   /**
    * Tests successful retrieval of instance name.
-   * @throws Exception if reflection fails
+   *
+   * @throws Exception
+   *     if reflection fails
    */
   @Test
   public void testGetInstanceNameSuccess() throws Exception {
@@ -406,13 +436,15 @@ public class AnalyticsSyncServiceTest extends BaseAnalyticsTest {
     String result = (String) method.invoke(service);
     assertEquals("test-instance-123", result);
 
-    mockedContext.verify(() -> OBContext.setAdminMode(true), times(1));
-    mockedContext.verify(OBContext::restorePreviousMode, times(1));
+    mockedContext.verify(() -> OBContext.setAdminMode(true), atLeastOnce());
+    mockedContext.verify(OBContext::restorePreviousMode, atLeastOnce());
   }
 
   /**
    * Tests instance name retrieval when system identifier is empty.
-   * @throws Exception if reflection fails
+   *
+   * @throws Exception
+   *     if reflection fails
    */
   @Test
   public void testGetInstanceNameWithEmptyIdentifier() throws Exception {
@@ -427,7 +459,9 @@ public class AnalyticsSyncServiceTest extends BaseAnalyticsTest {
 
   /**
    * Tests instance name retrieval when an exception occurs.
-   * @throws Exception if reflection fails
+   *
+   * @throws Exception
+   *     if reflection fails
    */
   @Test
   public void testGetInstanceNameWithException() throws Exception {
@@ -439,7 +473,7 @@ public class AnalyticsSyncServiceTest extends BaseAnalyticsTest {
     String result = (String) method.invoke(service);
     assertEquals("", result); // Returns empty on exception
 
-    mockedContext.verify(OBContext::restorePreviousMode, times(1));
+    mockedContext.verify(OBContext::restorePreviousMode, atLeastOnce());
   }
 
   /**

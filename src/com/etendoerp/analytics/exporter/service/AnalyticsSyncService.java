@@ -13,6 +13,7 @@ import org.openbravo.base.provider.OBProvider;
 import org.openbravo.dal.core.OBContext;
 import org.openbravo.dal.service.OBCriteria;
 import org.openbravo.dal.service.OBDal;
+import org.openbravo.erpCommon.obps.ActivationKey;
 import org.openbravo.erpCommon.utility.SystemInfo;
 import org.openbravo.model.ad.access.SessionUsageAudit;
 import org.openbravo.model.ad.module.Module;
@@ -62,7 +63,9 @@ public class AnalyticsSyncService {
 
   /**
    * Constructor that allows specifying a custom receiver URL.
-   * @param receiverUrl the URL of the receiver service
+   *
+   * @param receiverUrl
+   *     the URL of the receiver service
    */
   public AnalyticsSyncService(String receiverUrl) {
     this.extractionService = new DataExtractionService();
@@ -114,7 +117,7 @@ public class AnalyticsSyncService {
       logLastSyncInfo(lastSyncTimestamp, syncType);
 
       String payloadJson = executeSyncByType(syncType, instanceName, lastSyncTimestamp, result);
-      
+
       int recordsCount = calculateRecordsCount(result);
       if (recordsCount == 0) {
         result.setStatus(SUCCESS);
@@ -140,7 +143,7 @@ public class AnalyticsSyncService {
     }
   }
 
-  private String executeSyncByType(String syncType, String instanceName, Timestamp lastSyncTimestamp, SyncResult result) 
+  private String executeSyncByType(String syncType, String instanceName, Timestamp lastSyncTimestamp, SyncResult result)
       throws JsonProcessingException {
     if (StringUtils.equals(SYNC_TYPE_SESSION_USAGE_AUDITS, syncType)) {
       return executeSessionUsageSync(instanceName, lastSyncTimestamp, result);
@@ -151,10 +154,10 @@ public class AnalyticsSyncService {
     }
   }
 
-  private String executeSessionUsageSync(String instanceName, Timestamp lastSyncTimestamp, SyncResult result) 
+  private String executeSessionUsageSync(String instanceName, Timestamp lastSyncTimestamp, SyncResult result)
       throws JsonProcessingException {
     Integer daysToExport = determineDaysToExport(lastSyncTimestamp);
-    
+
     logDebug("Extracting sessions and usage audits...");
     AnalyticsPayload payload = extractionService.extractAnalyticsData(
         instanceName,
@@ -180,7 +183,7 @@ public class AnalyticsSyncService {
     }
   }
 
-  private String executeModuleMetadataSync(String instanceName, Timestamp lastSyncTimestamp, SyncResult result) 
+  private String executeModuleMetadataSync(String instanceName, Timestamp lastSyncTimestamp, SyncResult result)
       throws JsonProcessingException {
     if (lastSyncTimestamp == null) {
       logDebug("No previous sync found, exporting all active modules");
@@ -199,7 +202,7 @@ public class AnalyticsSyncService {
     return result.getSessionsCount() + result.getAuditsCount() + result.getModulesCount();
   }
 
-  private SyncResult sendPayloadAndSaveState(String payloadJson, int recordsCount, String syncType, SyncResult result) 
+  private SyncResult sendPayloadAndSaveState(String payloadJson, int recordsCount, String syncType, SyncResult result)
       throws Exception {
     logDebug("Sending " + recordsCount + " records to receiver...");
     ReceiverHttpClient.ReceiverResponse response = httpClient.sendPayload(payloadJson);
@@ -245,7 +248,8 @@ public class AnalyticsSyncService {
     }
   }
 
-  private void buildSessionsArray(ObjectNode root, List<org.openbravo.model.ad.access.Session> sessions, ObjectMapper mapper) {
+  private void buildSessionsArray(ObjectNode root, List<org.openbravo.model.ad.access.Session> sessions,
+      ObjectMapper mapper) {
     ArrayNode sessionsArray = root.putArray("sessions");
     for (org.openbravo.model.ad.access.Session session : sessions) {
       ObjectNode sessionNode = mapper.createObjectNode();
@@ -286,10 +290,10 @@ public class AnalyticsSyncService {
     // Determine object type and fetch window/process information
     String objectType = determineObjectType(audit.getCommand());
     AuditObjectInfo objectInfo = fetchAuditObjectInfo(audit.getObject(), objectType);
-    
+
     populateAuditNodeWithObjectInfo(auditNode, objectInfo, objectType);
     addAuditMetadata(auditNode, audit);
-    
+
     return auditNode;
   }
 
@@ -455,7 +459,7 @@ public class AnalyticsSyncService {
     try {
       OBContext.setAdminMode(true);
       AnalyticsSync syncRecord = OBProvider.getInstance().get(AnalyticsSync.class);
-      
+
       syncRecord.setClient(OBDal.getInstance().get(Client.class, "0"));
       syncRecord.setOrganization(
           OBDal.getInstance().get(org.openbravo.model.common.enterprise.Organization.class, "0"));
@@ -463,12 +467,12 @@ public class AnalyticsSyncService {
       syncRecord.setSyncType(syncType);
       syncRecord.setLastSync(new java.util.Date());
       syncRecord.setLastStatus(SUCCESS);
-      
+
       StringBuilder logMessage = new StringBuilder();
       logMessage.append(JOB_ID).append(jobId).append("\n");
       logMessage.append("Records: ").append(recordsCount);
       syncRecord.setLog(logMessage.toString());
-      
+
       OBDal.getInstance().save(syncRecord);
       OBDal.getInstance().flush();
       logDebug("Sync state persisted with job ID: " + jobId);
@@ -481,7 +485,7 @@ public class AnalyticsSyncService {
     try {
       OBContext.setAdminMode(true);
       AnalyticsSync syncRecord = OBProvider.getInstance().get(AnalyticsSync.class);
-      
+
       syncRecord.setClient(OBDal.getInstance().get(Client.class, "0"));
       syncRecord.setOrganization(
           OBDal.getInstance().get(org.openbravo.model.common.enterprise.Organization.class, "0"));
@@ -490,7 +494,7 @@ public class AnalyticsSyncService {
       syncRecord.setLastSync(new java.util.Date());
       syncRecord.setLastStatus(FAILED);
       syncRecord.setLog("Error: " + errorMessage);
-      
+
       OBDal.getInstance().save(syncRecord);
       OBDal.getInstance().flush();
     } catch (Exception e) {
@@ -506,9 +510,21 @@ public class AnalyticsSyncService {
   private String getInstanceName() {
     String accountID = "";
     try {
-      // Try to get from system info or client name
       OBContext.setAdminMode(true);
-      accountID = SystemInfo.getSystemIdentifier();
+      // First try ActivationKey customer. If ActivationKey cannot be initialized in this runtime,
+      // continue with SystemInfo fallback instead of returning an empty instance name.
+      try {
+        ActivationKey ak = ActivationKey.getInstance();
+        if (ActivationKey.isActiveInstance()) {
+          accountID = ak.getProperty("customer");
+        }
+      } catch (Throwable e) {
+        log.warn("Could not load activation key customer, trying System Identifier fallback", e);
+      }
+
+      if (StringUtils.isBlank(accountID)) {
+        accountID = SystemInfo.getSystemIdentifier();
+      }
       if (StringUtils.isBlank(accountID)) {
         log.warn("Empty System Identifier, Instance Name will be empty");
       }
