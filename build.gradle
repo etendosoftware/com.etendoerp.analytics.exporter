@@ -7,7 +7,7 @@
 */
 
 group          = "com.etendoerp"
-version        = "3.1.0"
+version        = "3.2.0"
 description    = "Exports Etendo ERP usage, session activity, and system health data to a centralized observability platform using secure, incremental JSON-based synchronization."
 ext.artifact   = "analytics.exporter"
 ext.repository = "https://maven.pkg.github.com/etendosoftware/com.etendoerp.analytics.exporter"
@@ -37,15 +37,6 @@ repositories {
     maven {
         url "https://maven.pkg.github.com/etendosoftware/com.etendoerp.analytics.exporter"
     }
-    maven {
-        url "https://repo.futit.cloud/repository/maven-releases"
-    }
-    maven {
-        url "https://repo.futit.cloud/repository/maven-public-releases"
-    }
-    maven {
-        url "https://repo.futit.cloud/repository/maven-public-jars"
-    }
 }
 
 sourceSets {
@@ -61,5 +52,5 @@ sourceSets {
 * Ex: implementation "com.sun.mail:javax.mail:1.6.2"
 */
 dependencies {
-   implementation('com.etendoerp.platform:etendo-core:[25.1.0, 26.1.0)')
+
 }
