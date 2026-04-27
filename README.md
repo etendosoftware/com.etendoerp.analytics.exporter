@@ -35,6 +35,7 @@ The module supports two synchronized data types:
 - Separate tracking per sync type (SESSION_USAGE_AUDITS, MODULE_METADATA)
 - Prevents data duplication
 - **Fallback**: If no previous sync exists, exports last 7 days (SESSION_USAGE_AUDITS only)
+- **Chunked export**: Session/audit synchronization is split into daily chunks to avoid oversized payloads on first syncs or large backfills
 
 ### 4. Robust HTTP Client
 
@@ -43,6 +44,7 @@ The module supports two synchronized data types:
 - Configured timeouts (30s connect, 60s read)
 - Automatic handling of unexpected JSON fields with `@JsonIgnoreProperties`
 - Logs `job_id` returned by receiver
+- Sends large session/audit exports as multiple sequential requests (one chunk per day by default)
 
 ### 5. Test Mode (DEBUG_MODE)
 

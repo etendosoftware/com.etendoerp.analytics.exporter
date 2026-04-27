@@ -176,6 +176,32 @@ public class DataExtractionServiceTest extends BaseAnalyticsTest {
   }
 
   /**
+   * Tests explicit window extraction applies both lower and upper bounds.
+   */
+  @Test
+  public void testExtractAnalyticsDataForWindow() {
+    Timestamp start = Timestamp.from(Instant.now().minusSeconds(2 * 86400L));
+    Timestamp end = Timestamp.from(Instant.now().minusSeconds(86400L));
+
+    when(mockOBDal.createCriteria(Session.class)).thenReturn(mockSessionCriteria);
+    when(mockOBDal.createCriteria(SessionUsageAudit.class)).thenReturn(mockAuditCriteria);
+
+    setupStandardCriteriaMock(mockSessionCriteria);
+    when(mockSessionCriteria.list()).thenReturn(mockSessions);
+
+    setupCriteriaWithAliasMock(mockAuditCriteria);
+    when(mockAuditCriteria.list()).thenReturn(mockAudits);
+
+    AnalyticsPayload result = service.extractAnalyticsDataForWindow(TEST_INSTANCE, start, end, 1);
+
+    assertNotNull(result);
+    assertEquals(TEST_INSTANCE, result.getMetadata().getSourceInstance());
+    assertEquals(Integer.valueOf(1), result.getMetadata().getDaysExported());
+    verify(mockSessionCriteria, times(3)).add(any(Criterion.class));
+    verify(mockAuditCriteria, times(3)).add(any(Criterion.class));
+  }
+
+  /**
    * Tests that runtime exceptions are wrapped in OBException during extraction.
    */
   @Test

@@ -19,6 +19,7 @@ package com.etendoerp.analytics.exporter.service;
 
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 
 import org.apache.commons.lang3.StringUtils;
@@ -61,6 +62,7 @@ public class AnalyticsSyncService {
   public static final String SYNC_TYPE_MODULE_METADATA = "MODULE_METADATA";
 
   private static final int DEFAULT_DAYS_EXPORT = 7;
+  private static final int DEFAULT_CHUNK_DAYS = 1;
   public static final String JOB_ID = "Job ID: ";
   public static final String SUCCESS = "SUCCESS";
   public static final String FAILED = "FAILED";
@@ -133,6 +135,10 @@ public class AnalyticsSyncService {
       Timestamp lastSyncTimestamp = lastSync != null ? lastSync.getLastSyncTimestamp() : null;
       logLastSyncInfo(lastSyncTimestamp, syncType);
 
+      if (StringUtils.equals(SYNC_TYPE_SESSION_USAGE_AUDITS, syncType)) {
+        return executeSessionUsageSync(instanceName, lastSyncTimestamp, result);
+      }
+
       String payloadJson = executeSyncByType(syncType, instanceName, lastSyncTimestamp, result);
 
       int recordsCount = calculateRecordsCount(result);
@@ -162,42 +168,111 @@ public class AnalyticsSyncService {
 
   private String executeSyncByType(String syncType, String instanceName, Timestamp lastSyncTimestamp, SyncResult result)
       throws JsonProcessingException {
-    if (StringUtils.equals(SYNC_TYPE_SESSION_USAGE_AUDITS, syncType)) {
-      return executeSessionUsageSync(instanceName, lastSyncTimestamp, result);
-    } else if (StringUtils.equals(SYNC_TYPE_MODULE_METADATA, syncType)) {
+    if (StringUtils.equals(SYNC_TYPE_MODULE_METADATA, syncType)) {
       return executeModuleMetadataSync(instanceName, lastSyncTimestamp, result);
-    } else {
-      throw new IllegalArgumentException("Unknown sync type: " + syncType);
     }
+    throw new IllegalArgumentException("Unknown sync type: " + syncType);
   }
 
-  private String executeSessionUsageSync(String instanceName, Timestamp lastSyncTimestamp, SyncResult result)
-      throws JsonProcessingException {
-    Integer daysToExport = determineDaysToExport(lastSyncTimestamp);
+  private SyncResult executeSessionUsageSync(String instanceName, Timestamp lastSyncTimestamp, SyncResult result)
+      throws Exception {
+    List<TimeWindow> windows = buildSessionUsageWindows(lastSyncTimestamp);
+    logDebug("Prepared " + windows.size() + " session usage chunk(s) for export");
 
-    logDebug("Extracting sessions and usage audits...");
-    AnalyticsPayload payload = extractionService.extractAnalyticsData(
-        instanceName,
-        lastSyncTimestamp,
-        daysToExport
-    );
+    List<String> jobIds = new ArrayList<>();
+    int sentChunks = 0;
 
-    result.setSessionsCount(payload.getSessions().size());
-    result.setAuditsCount(payload.getUsageAudits().size());
-    logDebug("Extraction complete: " + result.getSessionsCount() + " sessions, " +
-        result.getAuditsCount() + " audits");
+    for (int i = 0; i < windows.size(); i++) {
+      TimeWindow window = windows.get(i);
+      logDebug("Extracting chunk " + (i + 1) + "/" + windows.size() + ": " + window.describe());
 
-    return buildSessionsPayload(payload);
+      AnalyticsPayload payload = extractionService.extractAnalyticsDataForWindow(
+          instanceName,
+          window.getStartExclusive(),
+          window.getEndInclusive(),
+          window.getDaysExportedMetadata()
+      );
+
+      int chunkSessions = payload.getSessions().size();
+      int chunkAudits = payload.getUsageAudits().size();
+      int chunkRecords = chunkSessions + chunkAudits;
+
+      if (chunkRecords == 0) {
+        logDebug("Chunk " + (i + 1) + "/" + windows.size() + " has no new data, skipping transmission");
+        continue;
+      }
+
+      String payloadJson = buildSessionsPayload(payload);
+      logDebug("Sending chunk " + (i + 1) + "/" + windows.size() + " with " + chunkSessions +
+          " sessions and " + chunkAudits + " audits");
+
+      ReceiverHttpClient.ReceiverResponse response = httpClient.sendPayload(payloadJson);
+      sentChunks++;
+      jobIds.add(response.getJobId());
+      result.setSessionsCount(result.getSessionsCount() + chunkSessions);
+      result.setAuditsCount(result.getAuditsCount() + chunkAudits);
+      result.setJobId(response.getJobId());
+
+      saveSuccessfulSync(
+          SYNC_TYPE_SESSION_USAGE_AUDITS,
+          response.getJobId(),
+          chunkRecords,
+          window.getEndInclusive(),
+          "Chunk " + (i + 1) + "/" + windows.size() + " | " + window.describe() +
+              " | Sessions: " + chunkSessions + " | Audits: " + chunkAudits
+      );
+    }
+
+    result.setStatus(SUCCESS);
+    if (sentChunks == 0) {
+      result.setMessage("No new data to sync for " + SYNC_TYPE_SESSION_USAGE_AUDITS);
+      logDebug("No new data found across all prepared chunks, skipping transmission");
+    } else {
+      result.setMessage("Data exported successfully in " + sentChunks + " chunk(s). Last Job ID: " + result.getJobId());
+      logDebug("Chunked export completed successfully. Chunks sent: " + sentChunks + ", job IDs: " + jobIds);
+    }
+
+    return result;
   }
 
-  private Integer determineDaysToExport(Timestamp lastSyncTimestamp) {
+  private List<TimeWindow> buildSessionUsageWindows(Timestamp lastSyncTimestamp) {
+    List<TimeWindow> windows = new ArrayList<>();
+    Timestamp now = Timestamp.from(Instant.now());
+
     if (lastSyncTimestamp == null) {
-      logDebug("No previous sync found, exporting last " + DEFAULT_DAYS_EXPORT + " days");
-      return DEFAULT_DAYS_EXPORT;
-    } else {
-      logDebug("Incremental sync from: " + lastSyncTimestamp + " to now");
-      return null;
+      logDebug("No previous sync found, exporting last " + DEFAULT_DAYS_EXPORT + " days in daily chunks");
+      Timestamp cursorInclusive = Timestamp.from(Instant.now().minusSeconds(DEFAULT_DAYS_EXPORT * 24L * 3600L));
+
+      while (cursorInclusive.before(now)) {
+        Timestamp nextCursorInclusive = Timestamp.from(
+            cursorInclusive.toInstant().plusSeconds(DEFAULT_CHUNK_DAYS * 24L * 3600L));
+        Timestamp endInclusive = nextCursorInclusive.before(now)
+            ? Timestamp.from(nextCursorInclusive.toInstant().minusMillis(1))
+            : now;
+        windows.add(new TimeWindow(
+            Timestamp.from(cursorInclusive.toInstant().minusMillis(1)),
+            endInclusive,
+            DEFAULT_CHUNK_DAYS));
+        cursorInclusive = nextCursorInclusive;
+      }
+      return windows;
     }
+
+    logDebug("Incremental sync from: " + lastSyncTimestamp + " to now using daily chunks");
+    Timestamp cursorInclusive = Timestamp.from(lastSyncTimestamp.toInstant().plusMillis(1));
+    while (cursorInclusive.before(now)) {
+      Timestamp nextCursorInclusive = Timestamp.from(
+          cursorInclusive.toInstant().plusSeconds(DEFAULT_CHUNK_DAYS * 24L * 3600L));
+      Timestamp endInclusive = nextCursorInclusive.before(now)
+          ? Timestamp.from(nextCursorInclusive.toInstant().minusMillis(1))
+          : now;
+      windows.add(new TimeWindow(
+          Timestamp.from(cursorInclusive.toInstant().minusMillis(1)),
+          endInclusive,
+          null));
+      cursorInclusive = nextCursorInclusive;
+    }
+    return windows;
   }
 
   private String executeModuleMetadataSync(String instanceName, Timestamp lastSyncTimestamp, SyncResult result)
@@ -473,6 +548,11 @@ public class AnalyticsSyncService {
   }
 
   private void saveSuccessfulSync(String syncType, String jobId, int recordsCount) {
+    saveSuccessfulSync(syncType, jobId, recordsCount, Timestamp.from(Instant.now()), null);
+  }
+
+  private void saveSuccessfulSync(String syncType, String jobId, int recordsCount, Timestamp syncTimestamp,
+      String details) {
     try {
       OBContext.setAdminMode(true);
       AnalyticsSync syncRecord = OBProvider.getInstance().get(AnalyticsSync.class);
@@ -482,12 +562,15 @@ public class AnalyticsSyncService {
           OBDal.getInstance().get(org.openbravo.model.common.enterprise.Organization.class, "0"));
       syncRecord.setActive(true);
       syncRecord.setSyncType(syncType);
-      syncRecord.setLastSync(new java.util.Date());
+      syncRecord.setLastSync(syncTimestamp != null ? new java.util.Date(syncTimestamp.getTime()) : new java.util.Date());
       syncRecord.setLastStatus(SUCCESS);
 
       StringBuilder logMessage = new StringBuilder();
       logMessage.append(JOB_ID).append(jobId).append("\n");
       logMessage.append("Records: ").append(recordsCount);
+      if (StringUtils.isNotBlank(details)) {
+        logMessage.append("\n").append(details);
+      }
       syncRecord.setLog(logMessage.toString());
 
       OBDal.getInstance().save(syncRecord);
@@ -715,6 +798,39 @@ public class AnalyticsSyncService {
 
     public void setError(Exception error) {
       this.error = error;
+    }
+  }
+
+  private static class TimeWindow {
+    private final Timestamp startExclusive;
+    private final Timestamp endInclusive;
+    private final Integer daysExportedMetadata;
+
+    private TimeWindow(Timestamp startExclusive, Timestamp endInclusive, Integer daysExportedMetadata) {
+      this.startExclusive = startExclusive;
+      this.endInclusive = endInclusive;
+      this.daysExportedMetadata = daysExportedMetadata;
+    }
+
+    public Timestamp getStartExclusive() {
+      return startExclusive;
+    }
+
+    public Timestamp getEndInclusive() {
+      return endInclusive;
+    }
+
+    public Integer getDaysExportedMetadata() {
+      return daysExportedMetadata;
+    }
+
+    /**
+     * Describe the time window using inclusive/exclusive bounds for debug logging.
+     *
+     * @return string in the form ">start .. <=end"
+     */
+    public String describe() {
+      return ">" + startExclusive + " .. <=" + endInclusive;
     }
   }
 
