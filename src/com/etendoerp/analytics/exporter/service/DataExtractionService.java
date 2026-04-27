@@ -66,6 +66,31 @@ public class DataExtractionService {
       Integer daysToExport) {
     log.debug("Starting data extraction for instance: {}", sourceInstance);
 
+    Timestamp windowStartExclusive = lastSyncTimestamp;
+    Timestamp windowEndInclusive = null;
+
+    if (lastSyncTimestamp == null && daysToExport != null && daysToExport > 0) {
+      long cutoffMillis = Instant.now().minusSeconds(daysToExport * 24L * 3600L).toEpochMilli();
+      windowStartExclusive = new Timestamp(cutoffMillis - 1);
+    }
+
+    return extractAnalyticsDataForWindow(sourceInstance, windowStartExclusive, windowEndInclusive, daysToExport);
+  }
+
+  /**
+   * Extract analytics data for an explicit time window.
+   *
+   * @param sourceInstance Name of the Etendo instance
+   * @param windowStartExclusive Lower bound (exclusive). Use null for no lower bound.
+   * @param windowEndInclusive Upper bound (inclusive). Use null for no upper bound.
+   * @param daysExportedMetadata Optional metadata value to expose in the payload
+   * @return AnalyticsPayload with extracted data for the requested window
+   */
+  public AnalyticsPayload extractAnalyticsDataForWindow(String sourceInstance, Timestamp windowStartExclusive,
+      Timestamp windowEndInclusive, Integer daysExportedMetadata) {
+    log.debug("Starting windowed data extraction for instance: {} (>{}, <={})",
+        sourceInstance, windowStartExclusive, windowEndInclusive);
+
     try {
       OBContext.setAdminMode(true);
 
@@ -75,17 +100,17 @@ public class DataExtractionService {
       PayloadMetadata metadata = payload.getMetadata();
       metadata.setSourceInstance(sourceInstance);
       metadata.setExportTimestamp(formatTimestamp(Timestamp.from(Instant.now())));
-      if (daysToExport != null) {
-        metadata.setDaysExported(daysToExport);
+      if (daysExportedMetadata != null) {
+        metadata.setDaysExported(daysExportedMetadata);
       }
 
       // Extract sessions using DAL
-      List<Session> sessions = extractSessions(lastSyncTimestamp, daysToExport);
+      List<Session> sessions = extractSessions(windowStartExclusive, windowEndInclusive);
       payload.setSessions(sessions);
       log.debug("Extracted {} sessions", sessions.size());
 
       // Extract usage audits using DAL
-      List<SessionUsageAudit> audits = extractUsageAudits(lastSyncTimestamp, daysToExport);
+      List<SessionUsageAudit> audits = extractUsageAudits(windowStartExclusive, windowEndInclusive);
       payload.setUsageAudits(audits);
       log.debug("Extracted {} usage audits", audits.size());
 
@@ -102,20 +127,20 @@ public class DataExtractionService {
   /**
    * Extract session data using Etendo DAL
    */
-  private List<Session> extractSessions(Timestamp lastSyncTimestamp, Integer daysToExport) {
+  private List<Session> extractSessions(Timestamp windowStartExclusive, Timestamp windowEndInclusive) {
     OBCriteria<Session> criteria = OBDal.getInstance().createCriteria(Session.class);
 
     // Filter out POS sessions
     criteria.add(Restrictions.not(Restrictions.eq(Session.PROPERTY_LOGINSTATUS, "OBPOS_POS")));
 
     // Apply timestamp filter
-    if (lastSyncTimestamp != null) {
-      criteria.add(Restrictions.gt(Session.PROPERTY_CREATIONDATE, lastSyncTimestamp));
-      log.debug("Using incremental export for sessions since: {}", lastSyncTimestamp);
-    } else if (daysToExport != null && daysToExport > 0) {
-      Date cutoffDate = Date.from(Instant.now().minusSeconds(daysToExport * 24L * 3600L));
-      criteria.add(Restrictions.ge(Session.PROPERTY_CREATIONDATE, cutoffDate));
-      log.debug("Exporting last {} days of sessions", daysToExport);
+    if (windowStartExclusive != null) {
+      criteria.add(Restrictions.gt(Session.PROPERTY_CREATIONDATE, windowStartExclusive));
+      log.debug("Using lower bound for sessions after: {}", windowStartExclusive);
+    }
+    if (windowEndInclusive != null) {
+      criteria.add(Restrictions.le(Session.PROPERTY_CREATIONDATE, windowEndInclusive));
+      log.debug("Using upper bound for sessions up to: {}", windowEndInclusive);
     }
 
     criteria.addOrder(Order.desc(Session.PROPERTY_CREATIONDATE));
@@ -128,7 +153,7 @@ public class DataExtractionService {
   /**
    * Extract usage audit data using Etendo DAL
    */
-  private List<SessionUsageAudit> extractUsageAudits(Timestamp lastSyncTimestamp, Integer daysToExport) {
+  private List<SessionUsageAudit> extractUsageAudits(Timestamp windowStartExclusive, Timestamp windowEndInclusive) {
     OBCriteria<SessionUsageAudit> criteria = OBDal.getInstance().createCriteria(SessionUsageAudit.class);
 
     // Join with session to filter out POS
@@ -136,13 +161,13 @@ public class DataExtractionService {
     criteria.add(Restrictions.not(Restrictions.eq("session." + Session.PROPERTY_LOGINSTATUS, "OBPOS_POS")));
 
     // Apply timestamp filter
-    if (lastSyncTimestamp != null) {
-      criteria.add(Restrictions.gt(SessionUsageAudit.PROPERTY_CREATIONDATE, lastSyncTimestamp));
-      log.debug("Using incremental export for audits since: {}", lastSyncTimestamp);
-    } else if (daysToExport != null && daysToExport > 0) {
-      Date cutoffDate = Date.from(Instant.now().minusSeconds(daysToExport * 24L * 3600L));
-      criteria.add(Restrictions.ge(SessionUsageAudit.PROPERTY_CREATIONDATE, cutoffDate));
-      log.debug("Exporting last {} days of audits", daysToExport);
+    if (windowStartExclusive != null) {
+      criteria.add(Restrictions.gt(SessionUsageAudit.PROPERTY_CREATIONDATE, windowStartExclusive));
+      log.debug("Using lower bound for audits after: {}", windowStartExclusive);
+    }
+    if (windowEndInclusive != null) {
+      criteria.add(Restrictions.le(SessionUsageAudit.PROPERTY_CREATIONDATE, windowEndInclusive));
+      log.debug("Using upper bound for audits up to: {}", windowEndInclusive);
     }
 
     criteria.addOrder(Order.desc(SessionUsageAudit.PROPERTY_CREATIONDATE));

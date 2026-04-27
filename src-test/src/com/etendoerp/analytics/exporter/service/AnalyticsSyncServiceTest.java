@@ -21,16 +21,21 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.lang.reflect.Field;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Date;
 import java.util.List;
 
@@ -45,8 +50,15 @@ import org.openbravo.base.provider.OBProvider;
 import org.openbravo.dal.core.OBContext;
 import org.openbravo.dal.service.OBCriteria;
 import org.openbravo.erpCommon.utility.SystemInfo;
+import org.openbravo.model.ad.access.Session;
+import org.openbravo.model.ad.access.SessionUsageAudit;
 import org.openbravo.model.ad.domain.Preference;
+import org.openbravo.model.ad.module.Module;
 import org.openbravo.model.ad.system.Client;
+import org.openbravo.model.ad.ui.Process;
+import org.openbravo.model.common.enterprise.Organization;
+
+import com.etendoerp.analytics.exporter.data.AnalyticsPayload;
 
 import com.etendoerp.analytics.exporter.BaseAnalyticsTest;
 import com.etendoerp.analytics.exporter.data.AnalyticsSync;
@@ -107,6 +119,45 @@ public class AnalyticsSyncServiceTest extends BaseAnalyticsTest {
 
     // NOW create the service after all mocks are configured
     service = new AnalyticsSyncService();
+  }
+
+  private void injectField(String fieldName, Object value) {
+    try {
+      Field field = AnalyticsSyncService.class.getDeclaredField(fieldName);
+      field.setAccessible(true);
+      field.set(service, value);
+    } catch (Exception e) {
+      throw new AssertionError(REFLECTION_FAILED, e);
+    }
+  }
+
+  private AnalyticsPayload createPayload(int sessionsCount, int auditsCount) {
+    AnalyticsPayload payload = new AnalyticsPayload();
+    payload.getMetadata().setSourceInstance(TEST_INSTANCE);
+    payload.getMetadata().setExportTimestamp("2026-04-27T00:00:00.000000Z");
+
+    for (int i = 0; i < sessionsCount; i++) {
+      Session session = mock(Session.class);
+      when(session.getId()).thenReturn("session-" + i);
+      when(session.getUsername()).thenReturn("user-" + i);
+      when(session.getCreationDate()).thenReturn(new Date());
+      when(session.isSessionActive()).thenReturn(false);
+      when(session.getLoginStatus()).thenReturn("S");
+      when(session.getLastPing()).thenReturn(new Date());
+      payload.getSessions().add(session);
+    }
+
+    for (int i = 0; i < auditsCount; i++) {
+      SessionUsageAudit audit = mock(SessionUsageAudit.class);
+      when(audit.getId()).thenReturn("audit-" + i);
+      when(audit.getSession()).thenReturn(payload.getSessions().isEmpty() ? null : payload.getSessions().get(0));
+      when(audit.getCommand()).thenReturn("DEFAULT");
+      when(audit.getCreationDate()).thenReturn(new Date());
+      when(audit.getObject()).thenReturn("process-" + i);
+      payload.getUsageAudits().add(audit);
+    }
+
+    return payload;
   }
 
   /**
@@ -323,6 +374,75 @@ public class AnalyticsSyncServiceTest extends BaseAnalyticsTest {
 
     // Verify previous mode was restored
     mockedContext.verify(OBContext::restorePreviousMode, times(1));
+  }
+
+  /**
+   * Tests chunked first sync execution for session usage audits.
+   */
+  @Test
+  public void testExecuteSyncChunksFirstSyncAndAggregatesResults() throws Exception {
+    injectField("extractionService", mockExtractionService);
+    injectField("httpClient", mockHttpClient);
+
+    lenient().when(mockOBDal.createCriteria(AnalyticsSync.class)).thenReturn(mockSyncCriteria);
+    setupLenientCriteriaMock(mockSyncCriteria);
+    lenient().when(mockSyncCriteria.list()).thenReturn(Collections.emptyList());
+
+    OBProvider providerInstance = mock(OBProvider.class);
+    AnalyticsSync syncRecord = mock(AnalyticsSync.class);
+    mockedProvider.when(OBProvider::getInstance).thenReturn(providerInstance);
+    when(providerInstance.get(AnalyticsSync.class)).thenReturn(syncRecord);
+    when(mockOBDal.get(Client.class, "0")).thenReturn(mock(Client.class));
+    when(mockOBDal.get(Organization.class, "0")).thenReturn(mock(Organization.class));
+    when(mockOBDal.get(Module.class, "0")).thenReturn(null);
+    when(mockOBDal.get(Process.class, "process-0")).thenReturn(null);
+
+    ReceiverHttpClient.ReceiverResponse response = new ReceiverHttpClient.ReceiverResponse();
+    response.setJobId("chunk-job-1");
+    when(mockHttpClient.sendPayload(anyString())).thenReturn(response);
+
+    AnalyticsPayload payloadWithData = createPayload(1, 1);
+    AnalyticsPayload emptyPayload = createPayload(0, 0);
+    when(mockExtractionService.extractAnalyticsDataForWindow(anyString(), any(Timestamp.class), any(Timestamp.class), any()))
+        .thenReturn(payloadWithData, emptyPayload, emptyPayload, emptyPayload, emptyPayload, emptyPayload, emptyPayload);
+
+    AnalyticsSyncService.SyncResult result = service.executeSync(AnalyticsSyncService.SYNC_TYPE_SESSION_USAGE_AUDITS);
+
+    assertEquals(SUCCESS, result.getStatus());
+    assertEquals(1, result.getSessionsCount());
+    assertEquals(1, result.getAuditsCount());
+    assertEquals("chunk-job-1", result.getJobId());
+    assertTrue(result.getMessage().contains("1 chunk"));
+    verify(mockHttpClient, times(1)).sendPayload(anyString());
+    verify(mockExtractionService, times(7)).extractAnalyticsDataForWindow(anyString(), any(Timestamp.class), any(Timestamp.class), any());
+    verify(mockOBDal, times(1)).save(syncRecord);
+    verify(mockOBDal, times(1)).flush();
+  }
+
+  /**
+   * Tests chunked sync when all windows are empty.
+   */
+  @Test
+  public void testExecuteSyncChunksWithNoData() throws Exception {
+    injectField("extractionService", mockExtractionService);
+    injectField("httpClient", mockHttpClient);
+
+    lenient().when(mockOBDal.createCriteria(AnalyticsSync.class)).thenReturn(mockSyncCriteria);
+    setupLenientCriteriaMock(mockSyncCriteria);
+    lenient().when(mockSyncCriteria.list()).thenReturn(Collections.emptyList());
+
+    AnalyticsPayload emptyPayload = createPayload(0, 0);
+    when(mockExtractionService.extractAnalyticsDataForWindow(anyString(), any(Timestamp.class), any(Timestamp.class), any()))
+        .thenReturn(emptyPayload, emptyPayload, emptyPayload, emptyPayload, emptyPayload, emptyPayload, emptyPayload);
+
+    AnalyticsSyncService.SyncResult result = service.executeSync(AnalyticsSyncService.SYNC_TYPE_SESSION_USAGE_AUDITS);
+
+    assertEquals(SUCCESS, result.getStatus());
+    assertEquals(0, result.getSessionsCount());
+    assertEquals(0, result.getAuditsCount());
+    assertTrue(result.getMessage().contains("No new data"));
+    verify(mockHttpClient, times(0)).sendPayload(anyString());
+    verify(mockExtractionService, times(7)).extractAnalyticsDataForWindow(anyString(), any(Timestamp.class), any(Timestamp.class), any());
   }
 
   /**
