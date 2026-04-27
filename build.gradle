@@ -7,7 +7,7 @@
 */
 
 group          = "com.etendoerp"
-version        = "3.2.0"
+version        = "3.3.0"
 description    = "Exports Etendo ERP usage, session activity, and system health data to a centralized observability platform using secure, incremental JSON-based synchronization."
 ext.artifact   = "analytics.exporter"
 ext.repository = "https://maven.pkg.github.com/etendosoftware/com.etendoerp.analytics.exporter"
