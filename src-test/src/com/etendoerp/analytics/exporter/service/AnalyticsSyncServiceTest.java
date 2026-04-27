@@ -70,6 +70,7 @@ import com.etendoerp.analytics.exporter.data.AnalyticsSync;
 @ExtendWith(MockitoExtension.class)
 public class AnalyticsSyncServiceTest extends BaseAnalyticsTest {
 
+  public static final String TEST_INSTANCE = "test-instance";
   public static final String JOB_123 = "job-123";
   public static final String FAILED = "FAILED";
   public static final String MAP_LOGIN_STATUS = "mapLoginStatus";
@@ -378,6 +379,9 @@ public class AnalyticsSyncServiceTest extends BaseAnalyticsTest {
 
   /**
    * Tests chunked first sync execution for session usage audits.
+   *
+   * @throws Exception
+   *     if service execution or reflection-based injection fails
    */
   @Test
   public void testExecuteSyncChunksFirstSyncAndAggregatesResults() throws Exception {
@@ -421,6 +425,9 @@ public class AnalyticsSyncServiceTest extends BaseAnalyticsTest {
 
   /**
    * Tests chunked sync when all windows are empty.
+   *
+   * @throws Exception
+   *     if service execution or reflection-based injection fails
    */
   @Test
   public void testExecuteSyncChunksWithNoData() throws Exception {

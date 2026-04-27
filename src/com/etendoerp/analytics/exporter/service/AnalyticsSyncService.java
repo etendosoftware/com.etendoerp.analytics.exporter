@@ -244,35 +244,35 @@ public class AnalyticsSyncService {
       Timestamp cursorInclusive = Timestamp.from(Instant.now().minusSeconds(DEFAULT_DAYS_EXPORT * 24L * 3600L));
 
       while (cursorInclusive.before(now)) {
-        Timestamp nextCursorInclusive = addDays(cursorInclusive, DEFAULT_CHUNK_DAYS);
-        Timestamp endInclusive = nextCursorInclusive.before(now) ? subtractMillis(nextCursorInclusive, 1) : now;
-        windows.add(new TimeWindow(subtractMillis(cursorInclusive, 1), endInclusive, DEFAULT_CHUNK_DAYS));
+        Timestamp nextCursorInclusive = Timestamp.from(
+            cursorInclusive.toInstant().plusSeconds(DEFAULT_CHUNK_DAYS * 24L * 3600L));
+        Timestamp endInclusive = nextCursorInclusive.before(now)
+            ? Timestamp.from(nextCursorInclusive.toInstant().minusMillis(1))
+            : now;
+        windows.add(new TimeWindow(
+            Timestamp.from(cursorInclusive.toInstant().minusMillis(1)),
+            endInclusive,
+            DEFAULT_CHUNK_DAYS));
         cursorInclusive = nextCursorInclusive;
       }
       return windows;
     }
 
     logDebug("Incremental sync from: " + lastSyncTimestamp + " to now using daily chunks");
-    Timestamp cursorInclusive = addMillis(lastSyncTimestamp, 1);
+    Timestamp cursorInclusive = Timestamp.from(lastSyncTimestamp.toInstant().plusMillis(1));
     while (cursorInclusive.before(now)) {
-      Timestamp nextCursorInclusive = addDays(cursorInclusive, DEFAULT_CHUNK_DAYS);
-      Timestamp endInclusive = nextCursorInclusive.before(now) ? subtractMillis(nextCursorInclusive, 1) : now;
-      windows.add(new TimeWindow(subtractMillis(cursorInclusive, 1), endInclusive, null));
+      Timestamp nextCursorInclusive = Timestamp.from(
+          cursorInclusive.toInstant().plusSeconds(DEFAULT_CHUNK_DAYS * 24L * 3600L));
+      Timestamp endInclusive = nextCursorInclusive.before(now)
+          ? Timestamp.from(nextCursorInclusive.toInstant().minusMillis(1))
+          : now;
+      windows.add(new TimeWindow(
+          Timestamp.from(cursorInclusive.toInstant().minusMillis(1)),
+          endInclusive,
+          null));
       cursorInclusive = nextCursorInclusive;
     }
     return windows;
-  }
-
-  private Timestamp addDays(Timestamp timestamp, int days) {
-    return Timestamp.from(timestamp.toInstant().plusSeconds(days * 24L * 3600L));
-  }
-
-  private Timestamp addMillis(Timestamp timestamp, long millis) {
-    return Timestamp.from(timestamp.toInstant().plusMillis(millis));
-  }
-
-  private Timestamp subtractMillis(Timestamp timestamp, long millis) {
-    return Timestamp.from(timestamp.toInstant().minusMillis(millis));
   }
 
   private String executeModuleMetadataSync(String instanceName, Timestamp lastSyncTimestamp, SyncResult result)
@@ -824,6 +824,11 @@ public class AnalyticsSyncService {
       return daysExportedMetadata;
     }
 
+    /**
+     * Describe the time window using inclusive/exclusive bounds for debug logging.
+     *
+     * @return string in the form ">start .. <=end"
+     */
     public String describe() {
       return ">" + startExclusive + " .. <=" + endInclusive;
     }
