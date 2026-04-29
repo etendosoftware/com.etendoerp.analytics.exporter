@@ -46,18 +46,17 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 public class ReceiverHttpClient {
 
   private static final Logger log = LogManager.getLogger();
-  private static final int MAX_RETRIES = 3;
-  private static final int RETRY_DELAY_MS = 2000;
   private static final String DEFAULT_RECEIVER_URL = "https://receiver.otel2.etendo.cloud/process";
 
   private final String receiverUrl;
+  private final AnalyticsExporterConfigService configService;
   private final ObjectMapper objectMapper;
 
   /**
    * Default constructor that uses preference URL if available, otherwise default receiver URL.
    */
   public ReceiverHttpClient() {
-    this(getReceiverUrlFromPreference());
+    this(null, new AnalyticsExporterConfigService());
   }
 
   /**
@@ -67,9 +66,14 @@ public class ReceiverHttpClient {
    *     the URL of the receiver service
    */
   public ReceiverHttpClient(String receiverUrl) {
-    this.receiverUrl = StringUtils.isNotBlank(receiverUrl) ? receiverUrl : DEFAULT_RECEIVER_URL;
+    this(receiverUrl, new AnalyticsExporterConfigService());
+  }
+
+  ReceiverHttpClient(String receiverUrl, AnalyticsExporterConfigService configService) {
+    this.receiverUrl = StringUtils.trimToNull(receiverUrl);
+    this.configService = configService != null ? configService : new AnalyticsExporterConfigService();
     this.objectMapper = new ObjectMapper();
-    log.debug("ReceiverHttpClient initialized with URL: {}", this.receiverUrl);
+    log.debug("ReceiverHttpClient initialized with explicit URL override: {}", this.receiverUrl);
   }
 
   /**
@@ -101,17 +105,24 @@ public class ReceiverHttpClient {
    *     if all retries fail
    */
   public ReceiverResponse sendPayload(String jsonPayload) throws Exception {
+    AnalyticsExporterConfigService.EffectiveConfig config = configService.getEffectiveConfig();
+    String effectiveReceiverUrl = StringUtils.defaultIfBlank(receiverUrl,
+        StringUtils.defaultIfBlank(config.getReceiverUrl(), DEFAULT_RECEIVER_URL));
+    int maxRetries = config.getMaxRetries();
+    int retryDelayMs = config.getRetryDelayMs();
+
     log.debug("Preparing to send JSON payload to receiver");
     log.debug("Payload size: {} bytes", jsonPayload.getBytes(StandardCharsets.UTF_8).length);
 
     Exception lastException = null;
+    long sendStart = System.nanoTime();
 
     // Retry loop
-    for (int attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    for (int attempt = 1; attempt <= maxRetries; attempt++) {
       try {
-        log.debug("Attempt {}/{} to send data to receiver", attempt, MAX_RETRIES);
+        log.debug("Attempt {}/{} to send data to receiver at {}", attempt, maxRetries, effectiveReceiverUrl);
 
-        HttpURLConnection conn = getHttpURLConnection(jsonPayload);
+        HttpURLConnection conn = getHttpURLConnection(jsonPayload, effectiveReceiverUrl, config);
 
         int responseCode = conn.getResponseCode();
         log.debug("Receiver responded with status code: {}", responseCode);
@@ -121,18 +132,20 @@ public class ReceiverHttpClient {
         log.debug("Response body: {}", responseBody);
 
         // Handle response codes
-        ReceiverResponse result = handleResponseCode(responseCode, responseBody, attempt);
+        ReceiverResponse result = handleResponseCode(responseCode, responseBody, attempt, maxRetries, retryDelayMs);
         if (result != null) {
+          result.setHttpStatusCode(responseCode);
+          result.setRequestDurationMs(elapsedMillis(sendStart));
           return result;
         }
 
       } catch (Exception e) {
         lastException = e;
-        log.error("Error on attempt {}/{}: {}", attempt, MAX_RETRIES, e.getMessage());
+        log.error("Error on attempt {}/{}: {}", attempt, maxRetries, e.getMessage());
 
-        if (attempt < MAX_RETRIES && shouldRetry(e)) {
-          log.debug("Waiting {} ms before retry...", RETRY_DELAY_MS);
-          Thread.sleep(RETRY_DELAY_MS);
+        if (attempt < maxRetries && shouldRetry(e)) {
+          log.debug("Waiting {} ms before retry...", retryDelayMs);
+          Thread.sleep(retryDelayMs);
         } else if (!shouldRetry(e)) {
           throw e;
         }
@@ -140,7 +153,7 @@ public class ReceiverHttpClient {
     }
 
     // All retries failed
-    String errorMsg = "Failed to send data after " + MAX_RETRIES + " attempts";
+    String errorMsg = "Failed to send data after " + maxRetries + " attempts";
     log.error(errorMsg);
     throw new OBException(errorMsg, lastException);
   }
@@ -165,7 +178,8 @@ public class ReceiverHttpClient {
   /**
    * Handle response code and return ReceiverResponse if successful, null if retry is needed.
    */
-  private ReceiverResponse handleResponseCode(int responseCode, String responseBody, int attempt) throws Exception {
+  private ReceiverResponse handleResponseCode(int responseCode, String responseBody, int attempt, int maxRetries,
+      int retryDelayMs) throws Exception {
     if (responseCode == 202) {
       // Success - parse response
       ReceiverResponse receiverResponse = objectMapper.readValue(responseBody, ReceiverResponse.class);
@@ -175,9 +189,9 @@ public class ReceiverHttpClient {
     } else if (responseCode >= 500) {
       // Server error - retry
       log.warn("Server error ({}), will retry. Response: {}", responseCode, responseBody);
-      if (attempt < MAX_RETRIES) {
-        log.debug("Waiting {} ms before retry...", RETRY_DELAY_MS);
-        Thread.sleep(RETRY_DELAY_MS);
+      if (attempt < maxRetries) {
+        log.debug("Waiting {} ms before retry...", retryDelayMs);
+        Thread.sleep(retryDelayMs);
       }
       return null; // Signal to retry
 
@@ -194,20 +208,18 @@ public class ReceiverHttpClient {
     }
   }
 
-  private HttpURLConnection getHttpURLConnection(String jsonPayload) throws IOException {
-    log.debug("Creating HTTP connection to: {}", receiverUrl);
-    if (receiverUrl == null) {
-      log.error("ERROR: receiverUrl is null!");
-    }
-    URL url = new URL(receiverUrl != null ? receiverUrl : DEFAULT_RECEIVER_URL);
+  private HttpURLConnection getHttpURLConnection(String jsonPayload, String effectiveReceiverUrl,
+      AnalyticsExporterConfigService.EffectiveConfig config) throws IOException {
+    log.debug("Creating HTTP connection to: {}", effectiveReceiverUrl);
+    URL url = new URL(StringUtils.defaultIfBlank(effectiveReceiverUrl, DEFAULT_RECEIVER_URL));
     HttpURLConnection conn = (HttpURLConnection) url.openConnection();
 
     // Configure connection
     conn.setRequestMethod("POST");
     conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
     conn.setDoOutput(true);
-    conn.setConnectTimeout(30000); // 30 seconds
-    conn.setReadTimeout(60000); // 60 seconds
+    conn.setConnectTimeout(config.getConnectTimeoutMs());
+    conn.setReadTimeout(config.getReadTimeoutMs());
 
     // Send payload
     try (OutputStream os = conn.getOutputStream()) {
@@ -217,13 +229,17 @@ public class ReceiverHttpClient {
     return conn;
   }
 
+  private long elapsedMillis(long startNanos) {
+    return (System.nanoTime() - startNanos) / 1_000_000L;
+  }
+
   /**
    * Determine if an exception should trigger a retry
    */
   private boolean shouldRetry(Exception e) {
     // Retry on network errors, timeouts, etc.
     // Don't retry on JSON parsing errors or other logic errors
-    String message = e.getMessage().toLowerCase();
+    String message = StringUtils.defaultString(e.getMessage()).toLowerCase();
     return message.contains("timeout")
         || message.contains("connection")
         || message.contains("network")
@@ -248,6 +264,8 @@ public class ReceiverHttpClient {
     private Integer queue_position;
 
     private String error;
+    private Integer httpStatusCode;
+    private Long requestDurationMs;
 
     public String getStatus() {
       return status;
@@ -287,6 +305,22 @@ public class ReceiverHttpClient {
 
     public void setError(String error) {
       this.error = error;
+    }
+
+    public Integer getHttpStatusCode() {
+      return httpStatusCode;
+    }
+
+    public void setHttpStatusCode(Integer httpStatusCode) {
+      this.httpStatusCode = httpStatusCode;
+    }
+
+    public Long getRequestDurationMs() {
+      return requestDurationMs;
+    }
+
+    public void setRequestDurationMs(Long requestDurationMs) {
+      this.requestDurationMs = requestDurationMs;
     }
   }
 

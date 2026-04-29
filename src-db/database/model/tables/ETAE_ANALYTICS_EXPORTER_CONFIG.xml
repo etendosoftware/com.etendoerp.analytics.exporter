@@ -1,0 +1,81 @@
+<?xml version="1.0"?>
+  <database name="TABLE ETAE_ANALYTICS_EXPORTER_CONFIG">
+    <table name="ETAE_ANALYTICS_EXPORTER_CONFIG" primaryKey="ETAE_ANALYT_EXP_CONFIG_PK">
+      <column name="AD_CLIENT_ID" primaryKey="false" required="true" type="VARCHAR" size="32" autoIncrement="false">
+        <default/>
+        <onCreateDefault/>
+      </column>
+      <column name="AD_ORG_ID" primaryKey="false" required="true" type="VARCHAR" size="32" autoIncrement="false">
+        <default/>
+        <onCreateDefault/>
+      </column>
+      <column name="ISACTIVE" primaryKey="false" required="true" type="CHAR" size="1" autoIncrement="false">
+        <default><![CDATA[Y]]></default>
+        <onCreateDefault/>
+      </column>
+      <column name="CREATEDBY" primaryKey="false" required="true" type="VARCHAR" size="32" autoIncrement="false">
+        <default/>
+        <onCreateDefault/>
+      </column>
+      <column name="UPDATED" primaryKey="false" required="true" type="TIMESTAMP" size="7" autoIncrement="false">
+        <default><![CDATA[SYSDATE]]></default>
+        <onCreateDefault/>
+      </column>
+      <column name="UPDATEDBY" primaryKey="false" required="true" type="VARCHAR" size="32" autoIncrement="false">
+        <default/>
+        <onCreateDefault/>
+      </column>
+      <column name="CONFIG_NAME" primaryKey="false" required="true" type="VARCHAR" size="60" autoIncrement="false">
+        <default/>
+        <onCreateDefault/>
+      </column>
+      <column name="RECEIVER_URL" primaryKey="false" required="false" type="VARCHAR" size="255" autoIncrement="false">
+        <default><![CDATA[https://receiver.otel2.etendo.cloud/process]]></default>
+        <onCreateDefault/>
+      </column>
+      <column name="INITIAL_EXPORT_DAYS" primaryKey="false" required="true" type="DECIMAL" size="10,0" autoIncrement="false">
+        <default><![CDATA[7]]></default>
+        <onCreateDefault/>
+      </column>
+      <column name="CHUNK_DAYS" primaryKey="false" required="true" type="DECIMAL" size="10,0" autoIncrement="false">
+        <default><![CDATA[1]]></default>
+        <onCreateDefault/>
+      </column>
+      <column name="MAX_RETRIES" primaryKey="false" required="true" type="DECIMAL" size="10,0" autoIncrement="false">
+        <default><![CDATA[3]]></default>
+        <onCreateDefault/>
+      </column>
+      <column name="RETRY_DELAY_MS" primaryKey="false" required="true" type="DECIMAL" size="10,0" autoIncrement="false">
+        <default><![CDATA[2000]]></default>
+        <onCreateDefault/>
+      </column>
+      <column name="CONNECT_TIMEOUT_MS" primaryKey="false" required="true" type="DECIMAL" size="10,0" autoIncrement="false">
+        <default><![CDATA[30000]]></default>
+        <onCreateDefault/>
+      </column>
+      <column name="READ_TIMEOUT_MS" primaryKey="false" required="true" type="DECIMAL" size="10,0" autoIncrement="false">
+        <default><![CDATA[60000]]></default>
+        <onCreateDefault/>
+      </column>
+      <column name="DETAILED_LOGGING_ENABLED" primaryKey="false" required="true" type="CHAR" size="1" autoIncrement="false">
+        <default><![CDATA[N]]></default>
+        <onCreateDefault/>
+      </column>
+      <column name="ETAE_ANALYT_EXP_CONFIG_ID" primaryKey="true" required="true" type="VARCHAR" size="32" autoIncrement="false">
+        <default/>
+        <onCreateDefault/>
+      </column>
+      <column name="CREATIONDATE" primaryKey="false" required="true" type="TIMESTAMP" size="7" autoIncrement="false">
+        <default><![CDATA[SYSDATE]]></default>
+        <onCreateDefault/>
+      </column>
+      <foreign-key foreignTable="AD_CLIENT" name="ETAE_ANALYT_EXP_CFG_AD_CLIENT">
+        <reference local="AD_CLIENT_ID" foreign="AD_CLIENT_ID"/>
+      </foreign-key>
+      <foreign-key foreignTable="AD_ORG" name="ETAE_ANALYTICS_EXP_CFG_AD_ORG">
+        <reference local="AD_ORG_ID" foreign="AD_ORG_ID"/>
+      </foreign-key>
+      <check name="ETAE_ANALYT_EXP_CFG_ISACTIVE"><![CDATA[ISACTIVE IN ('Y', 'N')]]></check>
+      <check name="ETAE_ANALYTICS_EXP_CFG_DETLOG"><![CDATA[DETAILED_LOGGING_ENABLED IN ('Y', 'N')]]></check>
+    </table>
+  </database>

@@ -61,14 +61,13 @@ public class AnalyticsSyncService {
   public static final String SYNC_TYPE_SESSION_USAGE_AUDITS = "SESSION_USAGE_AUDITS";
   public static final String SYNC_TYPE_MODULE_METADATA = "MODULE_METADATA";
 
-  private static final int DEFAULT_DAYS_EXPORT = 7;
-  private static final int DEFAULT_CHUNK_DAYS = 1;
   public static final String JOB_ID = "Job ID: ";
   public static final String SUCCESS = "SUCCESS";
   public static final String FAILED = "FAILED";
 
   private final DataExtractionService extractionService;
   private final ReceiverHttpClient httpClient;
+  private final AnalyticsExporterConfigService configService;
   private ProcessLogger processLogger;
 
   /**
@@ -76,8 +75,9 @@ public class AnalyticsSyncService {
    * ReceiverHttpClient will use preference URL if configured, otherwise default URL.
    */
   public AnalyticsSyncService() {
+    this.configService = new AnalyticsExporterConfigService();
     this.extractionService = new DataExtractionService();
-    this.httpClient = new ReceiverHttpClient();
+    this.httpClient = new ReceiverHttpClient(null, this.configService);
   }
 
   /**
@@ -87,8 +87,9 @@ public class AnalyticsSyncService {
    *     the URL of the receiver service
    */
   public AnalyticsSyncService(String receiverUrl) {
+    this.configService = new AnalyticsExporterConfigService();
     this.extractionService = new DataExtractionService();
-    this.httpClient = new ReceiverHttpClient(receiverUrl);
+    this.httpClient = new ReceiverHttpClient(receiverUrl, this.configService);
   }
 
   /**
@@ -135,8 +136,11 @@ public class AnalyticsSyncService {
       Timestamp lastSyncTimestamp = lastSync != null ? lastSync.getLastSyncTimestamp() : null;
       logLastSyncInfo(lastSyncTimestamp, syncType);
 
+      AnalyticsExporterConfigService.EffectiveConfig config = configService.getEffectiveConfig();
+      logEffectiveConfig(config);
+
       if (StringUtils.equals(SYNC_TYPE_SESSION_USAGE_AUDITS, syncType)) {
-        return executeSessionUsageSync(instanceName, lastSyncTimestamp, result);
+        return executeSessionUsageSync(instanceName, lastSyncTimestamp, result, config);
       }
 
       String payloadJson = executeSyncByType(syncType, instanceName, lastSyncTimestamp, result);
@@ -174,35 +178,42 @@ public class AnalyticsSyncService {
     throw new IllegalArgumentException("Unknown sync type: " + syncType);
   }
 
-  private SyncResult executeSessionUsageSync(String instanceName, Timestamp lastSyncTimestamp, SyncResult result)
-      throws Exception {
-    List<TimeWindow> windows = buildSessionUsageWindows(lastSyncTimestamp);
+  private SyncResult executeSessionUsageSync(String instanceName, Timestamp lastSyncTimestamp, SyncResult result,
+      AnalyticsExporterConfigService.EffectiveConfig config) throws Exception {
+    List<TimeWindow> windows = buildSessionUsageWindows(lastSyncTimestamp, config);
     logDebug("Prepared " + windows.size() + " session usage chunk(s) for export");
 
     List<String> jobIds = new ArrayList<>();
     int sentChunks = 0;
+    int skippedChunks = 0;
 
     for (int i = 0; i < windows.size(); i++) {
       TimeWindow window = windows.get(i);
       logDebug("Extracting chunk " + (i + 1) + "/" + windows.size() + ": " + window.describe());
 
+      long extractionStart = System.nanoTime();
       AnalyticsPayload payload = extractionService.extractAnalyticsDataForWindow(
           instanceName,
           window.getStartExclusive(),
           window.getEndInclusive(),
           window.getDaysExportedMetadata()
       );
+      long extractionMs = elapsedMillis(extractionStart);
 
       int chunkSessions = payload.getSessions().size();
       int chunkAudits = payload.getUsageAudits().size();
       int chunkRecords = chunkSessions + chunkAudits;
 
       if (chunkRecords == 0) {
+        skippedChunks++;
         logDebug("Chunk " + (i + 1) + "/" + windows.size() + " has no new data, skipping transmission");
         continue;
       }
 
+      long payloadBuildStart = System.nanoTime();
       String payloadJson = buildSessionsPayload(payload);
+      long payloadBuildMs = elapsedMillis(payloadBuildStart);
+      int payloadBytes = payloadJson.getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
       logDebug("Sending chunk " + (i + 1) + "/" + windows.size() + " with " + chunkSessions +
           " sessions and " + chunkAudits + " audits");
 
@@ -213,13 +224,23 @@ public class AnalyticsSyncService {
       result.setAuditsCount(result.getAuditsCount() + chunkAudits);
       result.setJobId(response.getJobId());
 
+      String chunkMetrics = "Chunk " + (i + 1) + "/" + windows.size() + " | " + window.describe() +
+          " | Sessions: " + chunkSessions + " | Audits: " + chunkAudits +
+          " | PayloadBytes: " + payloadBytes + " | ExtractMs: " + extractionMs +
+          " | PayloadBuildMs: " + payloadBuildMs + " | PostMs: " + response.getRequestDurationMs() +
+          " | StatusCode: " + response.getHttpStatusCode() + " | QueuePosition: " + response.getQueuePosition();
+      logDebug(chunkMetrics);
+      if (config.isDetailedLoggingEnabled()) {
+        logDebug("Chunk " + (i + 1) + "/" + windows.size() + " receiver response | Job ID: " + response.getJobId() +
+            " | Status: " + response.getStatus() + " | Message: " + response.getMessage());
+      }
+
       saveSuccessfulSync(
           SYNC_TYPE_SESSION_USAGE_AUDITS,
           response.getJobId(),
           chunkRecords,
           window.getEndInclusive(),
-          "Chunk " + (i + 1) + "/" + windows.size() + " | " + window.describe() +
-              " | Sessions: " + chunkSessions + " | Audits: " + chunkAudits
+          chunkMetrics
       );
     }
 
@@ -228,41 +249,48 @@ public class AnalyticsSyncService {
       result.setMessage("No new data to sync for " + SYNC_TYPE_SESSION_USAGE_AUDITS);
       logDebug("No new data found across all prepared chunks, skipping transmission");
     } else {
-      result.setMessage("Data exported successfully in " + sentChunks + " chunk(s). Last Job ID: " + result.getJobId());
-      logDebug("Chunked export completed successfully. Chunks sent: " + sentChunks + ", job IDs: " + jobIds);
+      result.setMessage("Data exported successfully in " + sentChunks + " chunk(s). Skipped empty chunks: " + skippedChunks
+          + ". Last Job ID: " + result.getJobId());
+      logDebug("Chunked export completed successfully. Chunks sent: " + sentChunks + ", skipped: " + skippedChunks
+          + ", job IDs: " + jobIds);
     }
 
     return result;
   }
 
-  private List<TimeWindow> buildSessionUsageWindows(Timestamp lastSyncTimestamp) {
+  private List<TimeWindow> buildSessionUsageWindows(Timestamp lastSyncTimestamp,
+      AnalyticsExporterConfigService.EffectiveConfig config) {
     List<TimeWindow> windows = new ArrayList<>();
     Timestamp now = Timestamp.from(Instant.now());
 
+    int initialExportDays = config.getInitialExportDays();
+    int chunkDays = config.getChunkDays();
+
     if (lastSyncTimestamp == null) {
-      logDebug("No previous sync found, exporting last " + DEFAULT_DAYS_EXPORT + " days in daily chunks");
-      Timestamp cursorInclusive = Timestamp.from(Instant.now().minusSeconds(DEFAULT_DAYS_EXPORT * 24L * 3600L));
+      logDebug("No previous sync found, exporting last " + initialExportDays + " day(s) in chunk(s) of " + chunkDays
+          + " day(s)");
+      Timestamp cursorInclusive = Timestamp.from(Instant.now().minusSeconds(initialExportDays * 24L * 3600L));
 
       while (cursorInclusive.before(now)) {
         Timestamp nextCursorInclusive = Timestamp.from(
-            cursorInclusive.toInstant().plusSeconds(DEFAULT_CHUNK_DAYS * 24L * 3600L));
+            cursorInclusive.toInstant().plusSeconds(chunkDays * 24L * 3600L));
         Timestamp endInclusive = nextCursorInclusive.before(now)
             ? Timestamp.from(nextCursorInclusive.toInstant().minusMillis(1))
             : now;
         windows.add(new TimeWindow(
             Timestamp.from(cursorInclusive.toInstant().minusMillis(1)),
             endInclusive,
-            DEFAULT_CHUNK_DAYS));
+            chunkDays));
         cursorInclusive = nextCursorInclusive;
       }
       return windows;
     }
 
-    logDebug("Incremental sync from: " + lastSyncTimestamp + " to now using daily chunks");
+    logDebug("Incremental sync from: " + lastSyncTimestamp + " to now using chunk(s) of " + chunkDays + " day(s)");
     Timestamp cursorInclusive = Timestamp.from(lastSyncTimestamp.toInstant().plusMillis(1));
     while (cursorInclusive.before(now)) {
       Timestamp nextCursorInclusive = Timestamp.from(
-          cursorInclusive.toInstant().plusSeconds(DEFAULT_CHUNK_DAYS * 24L * 3600L));
+          cursorInclusive.toInstant().plusSeconds(chunkDays * 24L * 3600L));
       Timestamp endInclusive = nextCursorInclusive.before(now)
           ? Timestamp.from(nextCursorInclusive.toInstant().minusMillis(1))
           : now;
@@ -273,6 +301,22 @@ public class AnalyticsSyncService {
       cursorInclusive = nextCursorInclusive;
     }
     return windows;
+  }
+
+  private long elapsedMillis(long startNanos) {
+    return (System.nanoTime() - startNanos) / 1_000_000L;
+  }
+
+  private void logEffectiveConfig(AnalyticsExporterConfigService.EffectiveConfig config) {
+    logDebug("Effective analytics exporter config | Source: " + (config.isConfigured() ? "window" : "defaults")
+        + (StringUtils.isNotBlank(config.getConfigRecordId()) ? " | Config ID: " + config.getConfigRecordId() : "")
+        + " | InitialExportDays: " + config.getInitialExportDays()
+        + " | ChunkDays: " + config.getChunkDays()
+        + " | MaxRetries: " + config.getMaxRetries()
+        + " | RetryDelayMs: " + config.getRetryDelayMs()
+        + " | ConnectTimeoutMs: " + config.getConnectTimeoutMs()
+        + " | ReadTimeoutMs: " + config.getReadTimeoutMs()
+        + " | DetailedLogging: " + config.isDetailedLoggingEnabled());
   }
 
   private String executeModuleMetadataSync(String instanceName, Timestamp lastSyncTimestamp, SyncResult result)

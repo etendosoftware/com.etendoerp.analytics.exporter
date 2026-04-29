@@ -87,6 +87,9 @@ public class AnalyticsSyncServiceTest extends BaseAnalyticsTest {
   private ReceiverHttpClient mockHttpClient;
 
   @Mock
+  private AnalyticsExporterConfigService mockConfigService;
+
+  @Mock
   private OBCriteria<AnalyticsSync> mockSyncCriteria;
 
   @Mock
@@ -130,6 +133,19 @@ public class AnalyticsSyncServiceTest extends BaseAnalyticsTest {
     } catch (Exception e) {
       throw new AssertionError(REFLECTION_FAILED, e);
     }
+  }
+
+  private AnalyticsExporterConfigService.EffectiveConfig createEffectiveConfig(int initialDays, int chunkDays) {
+    AnalyticsExporterConfigService.EffectiveConfig config = new AnalyticsExporterConfigService.EffectiveConfig();
+    config.setReceiverUrl("http://test-receiver.com/process");
+    config.setInitialExportDays(initialDays);
+    config.setChunkDays(chunkDays);
+    config.setMaxRetries(3);
+    config.setRetryDelayMs(2000);
+    config.setConnectTimeoutMs(30000);
+    config.setReadTimeoutMs(60000);
+    config.setDetailedLoggingEnabled(false);
+    return config;
   }
 
   private AnalyticsPayload createPayload(int sessionsCount, int auditsCount) {
@@ -387,6 +403,7 @@ public class AnalyticsSyncServiceTest extends BaseAnalyticsTest {
   public void testExecuteSyncChunksFirstSyncAndAggregatesResults() throws Exception {
     injectField("extractionService", mockExtractionService);
     injectField("httpClient", mockHttpClient);
+    injectField("configService", mockConfigService);
 
     lenient().when(mockOBDal.createCriteria(AnalyticsSync.class)).thenReturn(mockSyncCriteria);
     setupLenientCriteriaMock(mockSyncCriteria);
@@ -403,7 +420,10 @@ public class AnalyticsSyncServiceTest extends BaseAnalyticsTest {
 
     ReceiverHttpClient.ReceiverResponse response = new ReceiverHttpClient.ReceiverResponse();
     response.setJobId("chunk-job-1");
+    response.setHttpStatusCode(202);
+    response.setRequestDurationMs(25L);
     when(mockHttpClient.sendPayload(anyString())).thenReturn(response);
+    when(mockConfigService.getEffectiveConfig()).thenReturn(createEffectiveConfig(7, 1));
 
     AnalyticsPayload payloadWithData = createPayload(1, 1);
     AnalyticsPayload emptyPayload = createPayload(0, 0);
@@ -433,12 +453,14 @@ public class AnalyticsSyncServiceTest extends BaseAnalyticsTest {
   public void testExecuteSyncChunksWithNoData() throws Exception {
     injectField("extractionService", mockExtractionService);
     injectField("httpClient", mockHttpClient);
+    injectField("configService", mockConfigService);
 
     lenient().when(mockOBDal.createCriteria(AnalyticsSync.class)).thenReturn(mockSyncCriteria);
     setupLenientCriteriaMock(mockSyncCriteria);
     lenient().when(mockSyncCriteria.list()).thenReturn(Collections.emptyList());
 
     AnalyticsPayload emptyPayload = createPayload(0, 0);
+    when(mockConfigService.getEffectiveConfig()).thenReturn(createEffectiveConfig(7, 1));
     when(mockExtractionService.extractAnalyticsDataForWindow(anyString(), any(Timestamp.class), any(Timestamp.class), any()))
         .thenReturn(emptyPayload, emptyPayload, emptyPayload, emptyPayload, emptyPayload, emptyPayload, emptyPayload);
 
@@ -450,6 +472,59 @@ public class AnalyticsSyncServiceTest extends BaseAnalyticsTest {
     assertTrue(result.getMessage().contains("No new data"));
     verify(mockHttpClient, times(0)).sendPayload(anyString());
     verify(mockExtractionService, times(7)).extractAnalyticsDataForWindow(anyString(), any(Timestamp.class), any(Timestamp.class), any());
+  }
+
+  /**
+   * Tests configurable first sync window size and chunk size.
+   */
+  @Test
+  public void testExecuteSyncUsesConfiguredInitialDaysAndChunkDays() throws Exception {
+    injectField("extractionService", mockExtractionService);
+    injectField("httpClient", mockHttpClient);
+    injectField("configService", mockConfigService);
+
+    lenient().when(mockOBDal.createCriteria(AnalyticsSync.class)).thenReturn(mockSyncCriteria);
+    setupLenientCriteriaMock(mockSyncCriteria);
+    lenient().when(mockSyncCriteria.list()).thenReturn(Collections.emptyList());
+    when(mockConfigService.getEffectiveConfig()).thenReturn(createEffectiveConfig(2, 2));
+
+    AnalyticsPayload emptyPayload = createPayload(0, 0);
+    when(mockExtractionService.extractAnalyticsDataForWindow(anyString(), any(Timestamp.class), any(Timestamp.class), any()))
+        .thenReturn(emptyPayload);
+
+    AnalyticsSyncService.SyncResult result = service.executeSync(AnalyticsSyncService.SYNC_TYPE_SESSION_USAGE_AUDITS);
+
+    assertEquals(SUCCESS, result.getStatus());
+    verify(mockExtractionService, times(1)).extractAnalyticsDataForWindow(anyString(), any(Timestamp.class), any(Timestamp.class), any());
+    verify(mockHttpClient, times(0)).sendPayload(anyString());
+  }
+
+  /**
+   * Tests configurable incremental chunk size.
+   */
+  @Test
+  public void testExecuteSyncUsesConfiguredChunkDaysForIncrementalSync() throws Exception {
+    injectField("extractionService", mockExtractionService);
+    injectField("httpClient", mockHttpClient);
+    injectField("configService", mockConfigService);
+
+    lenient().when(mockOBDal.createCriteria(AnalyticsSync.class)).thenReturn(mockSyncCriteria);
+    setupLenientCriteriaMock(mockSyncCriteria);
+
+    AnalyticsSync previousSync = mock(AnalyticsSync.class);
+    when(previousSync.getLastSync()).thenReturn(Date.from(Instant.now().minusSeconds(3L * 24L * 3600L)));
+    when(mockSyncCriteria.list()).thenReturn(List.of(previousSync));
+    when(mockConfigService.getEffectiveConfig()).thenReturn(createEffectiveConfig(7, 2));
+
+    AnalyticsPayload emptyPayload = createPayload(0, 0);
+    when(mockExtractionService.extractAnalyticsDataForWindow(anyString(), any(Timestamp.class), any(Timestamp.class), any()))
+        .thenReturn(emptyPayload, emptyPayload);
+
+    AnalyticsSyncService.SyncResult result = service.executeSync(AnalyticsSyncService.SYNC_TYPE_SESSION_USAGE_AUDITS);
+
+    assertEquals(SUCCESS, result.getStatus());
+    verify(mockExtractionService, times(2)).extractAnalyticsDataForWindow(anyString(), any(Timestamp.class), any(Timestamp.class), any());
+    verify(mockHttpClient, times(0)).sendPayload(anyString());
   }
 
   /**
