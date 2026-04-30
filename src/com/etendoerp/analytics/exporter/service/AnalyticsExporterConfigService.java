@@ -85,17 +85,17 @@ public class AnalyticsExporterConfigService {
             configs.size());
       }
 
-      AnalyticsExporterConfig record = configs.get(0);
-      config.setConfigRecordId(record.getId());
+      AnalyticsExporterConfig configRecord = configs.get(0);
+      config.setConfigRecordId(configRecord.getId());
       config.setConfigured(true);
-      config.setReceiverUrl(firstNonBlank(record.getReceiverURL(), config.getReceiverUrl()));
-      config.setInitialExportDays(asInteger(record.getInitialExportDays(), config.getInitialExportDays()));
-      config.setChunkDays(asInteger(record.getChunkDays(), config.getChunkDays()));
-      config.setMaxRetries(asInteger(record.getMaxRetries(), config.getMaxRetries()));
-      config.setRetryDelayMs(asInteger(record.getRetryDelayMs(), config.getRetryDelayMs()));
-      config.setConnectTimeoutMs(asInteger(record.getConnectTimeoutMs(), config.getConnectTimeoutMs()));
-      config.setReadTimeoutMs(asInteger(record.getReadTimeoutMs(), config.getReadTimeoutMs()));
-      config.setDetailedLoggingEnabled(asBoolean(record.isDetailedLoggingEnabled(), config.isDetailedLoggingEnabled()));
+      config.setReceiverUrl(firstNonBlank(configRecord.getReceiverURL(), config.getReceiverUrl()));
+      config.setInitialExportDays(asInteger(configRecord.getInitialExportDays(), config.getInitialExportDays()));
+      config.setChunkDays(asInteger(configRecord.getChunkDays(), config.getChunkDays()));
+      config.setMaxRetries(asInteger(configRecord.getMaxRetries(), config.getMaxRetries()));
+      config.setRetryDelayMs(asInteger(configRecord.getRetryDelayMs(), config.getRetryDelayMs()));
+      config.setConnectTimeoutMs(asInteger(configRecord.getConnectTimeoutMs(), config.getConnectTimeoutMs()));
+      config.setReadTimeoutMs(asInteger(configRecord.getReadTimeoutMs(), config.getReadTimeoutMs()));
+      config.setDetailedLoggingEnabled(asBoolean(configRecord.isDetailedLoggingEnabled(), config.isDetailedLoggingEnabled()));
       return sanitize(config);
     } catch (Exception e) {
       log.warn("Could not load analytics exporter configuration window data. Falling back to defaults.", e);
@@ -106,30 +106,30 @@ public class AnalyticsExporterConfigService {
   }
 
   private EffectiveConfig createDefaultSystemConfig(EffectiveConfig config) {
-    AnalyticsExporterConfig record = OBProvider.getInstance().get(AnalyticsExporterConfig.class);
+    AnalyticsExporterConfig configRecord = OBProvider.getInstance().get(AnalyticsExporterConfig.class);
     User systemUser = OBDal.getInstance().get(User.class, SYSTEM_USER_ID);
 
-    record.setClient(OBDal.getInstance().get(Client.class, SYSTEM_CLIENT_ID));
-    record.setOrganization(OBDal.getInstance().get(Organization.class, SYSTEM_ORG_ID));
-    record.setActive(true);
-    record.setCreatedBy(systemUser);
-    record.setUpdatedBy(systemUser);
-    record.setConfigurationName("Default System Configuration");
-    record.setReceiverURL(config.getReceiverUrl());
-    record.setInitialExportDays(Long.valueOf(config.getInitialExportDays()));
-    record.setChunkDays(Long.valueOf(config.getChunkDays()));
-    record.setMaxRetries(Long.valueOf(config.getMaxRetries()));
-    record.setRetryDelayMs(Long.valueOf(config.getRetryDelayMs()));
-    record.setConnectTimeoutMs(Long.valueOf(config.getConnectTimeoutMs()));
-    record.setReadTimeoutMs(Long.valueOf(config.getReadTimeoutMs()));
-    record.setDetailedLoggingEnabled(config.isDetailedLoggingEnabled());
+    configRecord.setClient(OBDal.getInstance().get(Client.class, SYSTEM_CLIENT_ID));
+    configRecord.setOrganization(OBDal.getInstance().get(Organization.class, SYSTEM_ORG_ID));
+    configRecord.setActive(true);
+    configRecord.setCreatedBy(systemUser);
+    configRecord.setUpdatedBy(systemUser);
+    configRecord.setConfigurationName("Default System Configuration");
+    configRecord.setReceiverURL(config.getReceiverUrl());
+    configRecord.setInitialExportDays(Long.valueOf(config.getInitialExportDays()));
+    configRecord.setChunkDays(Long.valueOf(config.getChunkDays()));
+    configRecord.setMaxRetries(Long.valueOf(config.getMaxRetries()));
+    configRecord.setRetryDelayMs(Long.valueOf(config.getRetryDelayMs()));
+    configRecord.setConnectTimeoutMs(Long.valueOf(config.getConnectTimeoutMs()));
+    configRecord.setReadTimeoutMs(Long.valueOf(config.getReadTimeoutMs()));
+    configRecord.setDetailedLoggingEnabled(config.isDetailedLoggingEnabled());
 
-    OBDal.getInstance().save(record);
+    OBDal.getInstance().save(configRecord);
     OBDal.getInstance().flush();
 
-    config.setConfigRecordId(record.getId());
+    config.setConfigRecordId(configRecord.getId());
     config.setConfigured(true);
-    log.info("Created default analytics exporter system configuration with ID {}", record.getId());
+    log.info("Created default analytics exporter system configuration with ID {}", configRecord.getId());
     return config;
   }
 
@@ -165,10 +165,6 @@ public class AnalyticsExporterConfigService {
 
   private String firstNonBlank(String primary, String fallback) {
     return StringUtils.isNotBlank(primary) ? primary : fallback;
-  }
-
-  private String asString(Object value) {
-    return value != null ? String.valueOf(value) : null;
   }
 
   private Integer asInteger(Number value, Integer defaultValue) {

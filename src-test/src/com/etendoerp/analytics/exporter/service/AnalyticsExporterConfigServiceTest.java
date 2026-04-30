@@ -22,7 +22,6 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -49,6 +48,13 @@ import org.openbravo.model.common.enterprise.Organization;
 import com.etendoerp.analytics.exporter.BaseAnalyticsTest;
 import com.etendoerp.analytics.exporter.data.AnalyticsExporterConfig;
 
+/**
+ * Unit tests for {@link AnalyticsExporterConfigService}.
+ * <p>
+ * Covers default fallback behavior, automatic system-level configuration
+ * creation, sanitization of persisted values, and selection of the effective
+ * active configuration record.
+ */
 @ExtendWith(MockitoExtension.class)
 public class AnalyticsExporterConfigServiceTest extends BaseAnalyticsTest {
 
@@ -77,6 +83,9 @@ public class AnalyticsExporterConfigServiceTest extends BaseAnalyticsTest {
 
   private MockedStatic<OBProvider> mockedProvider;
 
+  /**
+   * Initializes the service under test and the static OBProvider mock.
+   */
   @BeforeEach
   public void setUp() {
     service = new AnalyticsExporterConfigService();
@@ -84,6 +93,9 @@ public class AnalyticsExporterConfigServiceTest extends BaseAnalyticsTest {
     mockedProvider.when(OBProvider::getInstance).thenReturn(mockProvider);
   }
 
+  /**
+   * Releases the static OBProvider mock created for each test.
+   */
   @AfterEach
   public void tearDown() {
     if (mockedProvider != null) {
@@ -91,6 +103,9 @@ public class AnalyticsExporterConfigServiceTest extends BaseAnalyticsTest {
     }
   }
 
+  /**
+   * Verifies that code defaults are returned when DAL configuration lookup fails.
+   */
   @Test
   public void testGetEffectiveConfigFallsBackToDefaultsWhenCriteriaFails() {
     when(mockOBDal.createCriteria(AnalyticsExporterConfig.class)).thenThrow(new RuntimeException("boom"));
@@ -111,6 +126,9 @@ public class AnalyticsExporterConfigServiceTest extends BaseAnalyticsTest {
     mockedContext.verify(org.openbravo.dal.core.OBContext::restorePreviousMode, times(1));
   }
 
+  /**
+   * Verifies that a default system configuration record is created when none exists.
+   */
   @Test
   public void testGetEffectiveConfigCreatesDefaultSystemConfigWhenNoRecordsExist() {
     when(mockOBDal.createCriteria(AnalyticsExporterConfig.class)).thenReturn(mockCriteria);
@@ -150,6 +168,9 @@ public class AnalyticsExporterConfigServiceTest extends BaseAnalyticsTest {
     verify(mockOBDal).flush();
   }
 
+  /**
+   * Verifies that invalid persisted numeric values are sanitized back to safe defaults.
+   */
   @Test
   public void testGetEffectiveConfigUsesStoredValuesAndSanitizesInvalidNumbers() {
     when(mockOBDal.createCriteria(AnalyticsExporterConfig.class)).thenReturn(mockCriteria);
@@ -182,6 +203,10 @@ public class AnalyticsExporterConfigServiceTest extends BaseAnalyticsTest {
     assertTrue(config.isDetailedLoggingEnabled());
   }
 
+  /**
+   * Verifies that the most recently updated active configuration is selected when
+   * multiple active records are available.
+   */
   @Test
   public void testGetEffectiveConfigUsesMostRecentlyUpdatedRecordWhenMultipleExist() {
     when(mockOBDal.createCriteria(AnalyticsExporterConfig.class)).thenReturn(mockCriteria);

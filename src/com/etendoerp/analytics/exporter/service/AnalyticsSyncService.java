@@ -20,6 +20,7 @@ package com.etendoerp.analytics.exporter.service;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.List;
 
 import org.apache.commons.lang3.StringUtils;
@@ -64,6 +65,8 @@ public class AnalyticsSyncService {
   public static final String JOB_ID = "Job ID: ";
   public static final String SUCCESS = "SUCCESS";
   public static final String FAILED = "FAILED";
+  private static final String CHUNK_LABEL_PREFIX = "Chunk ";
+  private static final int MAX_PERSISTED_LOG_LENGTH = 3900;
 
   private final DataExtractionService extractionService;
   private final ReceiverHttpClient httpClient;
@@ -127,20 +130,25 @@ public class AnalyticsSyncService {
     logDebug("=== Starting Analytics Synchronization [" + syncType + "] ===");
     SyncResult result = new SyncResult();
     result.setStartTime(Timestamp.from(Instant.now()));
+    SyncExecutionTrace trace = new SyncExecutionTrace(syncType, result.getStartTime());
 
     try {
       String instanceName = getInstanceName();
       logDebug("Instance name: " + instanceName);
+      trace.addSummary("Instance Name: " + StringUtils.defaultIfBlank(instanceName, "N/A"));
 
       SyncState lastSync = getLastSyncState(syncType);
       Timestamp lastSyncTimestamp = lastSync != null ? lastSync.getLastSyncTimestamp() : null;
       logLastSyncInfo(lastSyncTimestamp, syncType);
+      trace.addSummary("Previous Successful Sync: " + formatTraceTimestamp(lastSyncTimestamp));
 
       AnalyticsExporterConfigService.EffectiveConfig config = configService.getEffectiveConfig();
+      trace.setDetailedLoggingEnabled(config.isDetailedLoggingEnabled());
       logEffectiveConfig(config);
+      trace.addSummary("Effective Config: " + buildConfigSummary(config));
 
       if (StringUtils.equals(SYNC_TYPE_SESSION_USAGE_AUDITS, syncType)) {
-        return executeSessionUsageSync(instanceName, lastSyncTimestamp, result, config);
+        return executeSessionUsageSync(instanceName, lastSyncTimestamp, result, config, trace);
       }
 
       String payloadJson = executeSyncByType(syncType, instanceName, lastSyncTimestamp, result);
@@ -149,16 +157,19 @@ public class AnalyticsSyncService {
       if (recordsCount == 0) {
         result.setStatus(SUCCESS);
         result.setMessage("No new data to sync for " + syncType);
+        trace.addSummary("Result: No new data to synchronize");
+        trace.addSummary("Modules: " + result.getModulesCount());
         logDebug("No new data found, skipping transmission");
         return result;
       }
 
-      return sendPayloadAndSaveState(payloadJson, recordsCount, syncType, result);
+      return sendPayloadAndSaveState(payloadJson, recordsCount, syncType, result, trace);
 
     } catch (Exception e) {
-      return handleSyncError(result, syncType, e);
+      return handleSyncError(result, syncType, e, trace);
     } finally {
       result.setEndTime(Timestamp.from(Instant.now()));
+      trace.setEndTime(result.getEndTime());
     }
   }
 
@@ -179,9 +190,10 @@ public class AnalyticsSyncService {
   }
 
   private SyncResult executeSessionUsageSync(String instanceName, Timestamp lastSyncTimestamp, SyncResult result,
-      AnalyticsExporterConfigService.EffectiveConfig config) throws Exception {
+      AnalyticsExporterConfigService.EffectiveConfig config, SyncExecutionTrace trace) throws Exception {
     List<TimeWindow> windows = buildSessionUsageWindows(lastSyncTimestamp, config);
     logDebug("Prepared " + windows.size() + " session usage chunk(s) for export");
+    trace.addSummary("Prepared Chunks: " + windows.size());
 
     List<String> jobIds = new ArrayList<>();
     int sentChunks = 0;
@@ -190,6 +202,7 @@ public class AnalyticsSyncService {
     for (int i = 0; i < windows.size(); i++) {
       TimeWindow window = windows.get(i);
       logDebug("Extracting chunk " + (i + 1) + "/" + windows.size() + ": " + window.describe());
+      trace.addDetail("Preparing " + CHUNK_LABEL_PREFIX + (i + 1) + "/" + windows.size() + " | " + window.describe());
 
       long extractionStart = System.nanoTime();
       AnalyticsPayload payload = extractionService.extractAnalyticsDataForWindow(
@@ -198,7 +211,7 @@ public class AnalyticsSyncService {
           window.getEndInclusive(),
           window.getDaysExportedMetadata()
       );
-      long extractionMs = elapsedMillis(extractionStart);
+      long extractionMs = AnalyticsSyncSupport.elapsedMillis(extractionStart);
 
       int chunkSessions = payload.getSessions().size();
       int chunkAudits = payload.getUsageAudits().size();
@@ -206,15 +219,18 @@ public class AnalyticsSyncService {
 
       if (chunkRecords == 0) {
         skippedChunks++;
-        logDebug("Chunk " + (i + 1) + "/" + windows.size() + " has no new data, skipping transmission");
+        String emptyChunkMessage = CHUNK_LABEL_PREFIX + (i + 1) + "/" + windows.size()
+            + " has no new data, skipping transmission";
+        logDebug(emptyChunkMessage);
+        trace.addDetail(emptyChunkMessage);
         continue;
       }
 
       long payloadBuildStart = System.nanoTime();
       String payloadJson = buildSessionsPayload(payload);
-      long payloadBuildMs = elapsedMillis(payloadBuildStart);
+      long payloadBuildMs = AnalyticsSyncSupport.elapsedMillis(payloadBuildStart);
       int payloadBytes = payloadJson.getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
-      logDebug("Sending chunk " + (i + 1) + "/" + windows.size() + " with " + chunkSessions +
+      logDebug("Sending " + CHUNK_LABEL_PREFIX.toLowerCase() + (i + 1) + "/" + windows.size() + " with " + chunkSessions +
           " sessions and " + chunkAudits + " audits");
 
       ReceiverHttpClient.ReceiverResponse response = httpClient.sendPayload(payloadJson);
@@ -224,33 +240,44 @@ public class AnalyticsSyncService {
       result.setAuditsCount(result.getAuditsCount() + chunkAudits);
       result.setJobId(response.getJobId());
 
-      String chunkMetrics = "Chunk " + (i + 1) + "/" + windows.size() + " | " + window.describe() +
+      String chunkMetrics = CHUNK_LABEL_PREFIX + (i + 1) + "/" + windows.size() + " | " + window.describe() +
           " | Sessions: " + chunkSessions + " | Audits: " + chunkAudits +
           " | PayloadBytes: " + payloadBytes + " | ExtractMs: " + extractionMs +
           " | PayloadBuildMs: " + payloadBuildMs + " | PostMs: " + response.getRequestDurationMs() +
           " | StatusCode: " + response.getHttpStatusCode() + " | QueuePosition: " + response.getQueuePosition();
       logDebug(chunkMetrics);
+      trace.addDetail(chunkMetrics);
       if (config.isDetailedLoggingEnabled()) {
-        logDebug("Chunk " + (i + 1) + "/" + windows.size() + " receiver response | Job ID: " + response.getJobId() +
-            " | Status: " + response.getStatus() + " | Message: " + response.getMessage());
+        String responseDetails = CHUNK_LABEL_PREFIX + (i + 1) + "/" + windows.size() + " receiver response | Job ID: "
+            + response.getJobId() + " | Status: " + response.getStatus() + " | Message: " + response.getMessage();
+        logDebug(responseDetails);
+        trace.addDetail(responseDetails);
       }
 
+      trace.addSummary("Last Successful Chunk: " + CHUNK_LABEL_PREFIX + (i + 1) + "/" + windows.size()
+          + " | Job ID: " + response.getJobId());
       saveSuccessfulSync(
           SYNC_TYPE_SESSION_USAGE_AUDITS,
           response.getJobId(),
           chunkRecords,
           window.getEndInclusive(),
-          chunkMetrics
+          trace.renderSuccess(result, chunkRecords, sentChunks, skippedChunks)
       );
     }
 
     result.setStatus(SUCCESS);
     if (sentChunks == 0) {
       result.setMessage("No new data to sync for " + SYNC_TYPE_SESSION_USAGE_AUDITS);
+      trace.addSummary("Result: No new data to synchronize");
+      trace.addSummary("Chunks Sent: 0 | Skipped Empty Chunks: " + skippedChunks);
       logDebug("No new data found across all prepared chunks, skipping transmission");
     } else {
       result.setMessage("Data exported successfully in " + sentChunks + " chunk(s). Skipped empty chunks: " + skippedChunks
           + ". Last Job ID: " + result.getJobId());
+      trace.addSummary("Result: " + result.getMessage());
+      trace.addSummary("Sessions: " + result.getSessionsCount() + " | Audits: " + result.getAuditsCount());
+      trace.addSummary("Chunks Sent: " + sentChunks + " | Skipped Empty Chunks: " + skippedChunks);
+      trace.addSummary("Job IDs: " + jobIds);
       logDebug("Chunked export completed successfully. Chunks sent: " + sentChunks + ", skipped: " + skippedChunks
           + ", job IDs: " + jobIds);
     }
@@ -303,10 +330,6 @@ public class AnalyticsSyncService {
     return windows;
   }
 
-  private long elapsedMillis(long startNanos) {
-    return (System.nanoTime() - startNanos) / 1_000_000L;
-  }
-
   private void logEffectiveConfig(AnalyticsExporterConfigService.EffectiveConfig config) {
     logDebug("Effective analytics exporter config | Source: " + (config.isConfigured() ? "window" : "defaults")
         + (StringUtils.isNotBlank(config.getConfigRecordId()) ? " | Config ID: " + config.getConfigRecordId() : "")
@@ -338,26 +361,38 @@ public class AnalyticsSyncService {
     return result.getSessionsCount() + result.getAuditsCount() + result.getModulesCount();
   }
 
-  private SyncResult sendPayloadAndSaveState(String payloadJson, int recordsCount, String syncType, SyncResult result)
-      throws Exception {
+  private SyncResult sendPayloadAndSaveState(String payloadJson, int recordsCount, String syncType, SyncResult result,
+      SyncExecutionTrace trace) throws Exception {
     logDebug("Sending " + recordsCount + " records to receiver...");
     ReceiverHttpClient.ReceiverResponse response = httpClient.sendPayload(payloadJson);
 
     result.setJobId(response.getJobId());
     result.setStatus(SUCCESS);
     result.setMessage("Data exported successfully. Job ID: " + response.getJobId());
+    trace.addSummary("Result: " + result.getMessage());
+    trace.addSummary("Records: " + recordsCount + " | Modules: " + result.getModulesCount());
+    trace.addSummary("Receiver Status Code: " + response.getHttpStatusCode() + " | PostMs: "
+        + response.getRequestDurationMs() + " | QueuePosition: " + response.getQueuePosition());
+    if (trace.isDetailedLoggingEnabled()) {
+      trace.addDetail("Receiver response | Job ID: " + response.getJobId() + " | Status: " + response.getStatus()
+          + " | Message: " + response.getMessage());
+    }
     logDebug("Data sent successfully. Job ID: " + response.getJobId());
 
-    saveSuccessfulSync(syncType, response.getJobId(), recordsCount);
+    saveSuccessfulSync(syncType, response.getJobId(), recordsCount, Timestamp.from(Instant.now()), trace.renderSuccess(result,
+        recordsCount, null, null));
     return result;
   }
 
-  private SyncResult handleSyncError(SyncResult result, String syncType, Exception e) {
+  private SyncResult handleSyncError(SyncResult result, String syncType, Exception e, SyncExecutionTrace trace) {
     log.error("Error during " + syncType + " sync", e);
     result.setStatus(FAILED);
     result.setMessage("Sync failed: " + e.getMessage());
     result.setError(e);
-    saveFailedSync(syncType, e.getMessage());
+    trace.addSummary("Result: " + result.getMessage());
+    trace.addSummary("Error Type: " + e.getClass().getSimpleName());
+    trace.addDetail("Failure details: " + StringUtils.defaultIfBlank(e.getMessage(), "No error message available"));
+    saveFailedSync(syncType, e.getMessage(), trace.renderFailure(result));
     return result;
   }
 
@@ -392,14 +427,14 @@ public class AnalyticsSyncService {
       sessionNode.put("session_id", session.getId());
       sessionNode.put("username", session.getUsername());
       sessionNode.put("user_id", session.getCreatedBy() != null ? session.getCreatedBy().getId() : null);
-      sessionNode.put("login_time", formatTimestamp(session.getCreationDate()));
-      sessionNode.put("logout_time", !session.isSessionActive() ? formatTimestamp(session.getLastPing()) : null);
+      sessionNode.put("login_time", AnalyticsSyncSupport.formatTimestamp(session.getCreationDate()));
+      sessionNode.put("logout_time", !session.isSessionActive() ? AnalyticsSyncSupport.formatTimestamp(session.getLastPing()) : null);
       sessionNode.put("session_active", session.isSessionActive());
-      sessionNode.put("login_status", mapLoginStatus(session.getLoginStatus()));
+      sessionNode.put("login_status", AnalyticsSyncSupport.mapLoginStatus(session.getLoginStatus(), SUCCESS, FAILED));
       sessionNode.put("server_url", session.getServerUrl());
-      sessionNode.put("created", formatTimestamp(session.getCreationDate()));
+      sessionNode.put("created", AnalyticsSyncSupport.formatTimestamp(session.getCreationDate()));
       sessionNode.put("created_by", session.getCreatedBy() != null ? session.getCreatedBy().getId() : null);
-      sessionNode.put("updated", formatTimestamp(session.getUpdated()));
+      sessionNode.put("updated", AnalyticsSyncSupport.formatTimestamp(session.getUpdated()));
       sessionNode.put("updated_by", session.getUpdatedBy() != null ? session.getUpdatedBy().getId() : null);
       sessionNode.put("ip", session.getRemoteAddress());
       sessionsArray.add(sessionNode);
@@ -420,7 +455,7 @@ public class AnalyticsSyncService {
     auditNode.put("session_id", audit.getSession() != null ? audit.getSession().getId() : null);
     auditNode.put("username", audit.getSession() != null ? audit.getSession().getUsername() : null);
     auditNode.put("command", audit.getCommand());
-    auditNode.put("execution_time", formatTimestamp(audit.getCreationDate()));
+    auditNode.put("execution_time", AnalyticsSyncSupport.formatTimestamp(audit.getCreationDate()));
     auditNode.put("process_time_ms", audit.getProcessTime() != null ? audit.getProcessTime().doubleValue() : null);
 
     // Determine object type and fetch window/process information
@@ -511,7 +546,7 @@ public class AnalyticsSyncService {
 
     auditNode.put("object_id", audit.getObject());
     auditNode.put("record_count", 0);
-    auditNode.put("created", formatTimestamp(audit.getCreationDate()));
+    auditNode.put("created", AnalyticsSyncSupport.formatTimestamp(audit.getCreationDate()));
     auditNode.put("created_by", audit.getCreatedBy() != null ? audit.getCreatedBy().getId() : null);
     auditNode.put("ip", audit.getSession() != null ? audit.getSession().getRemoteAddress() : null);
   }
@@ -528,33 +563,6 @@ public class AnalyticsSyncService {
     String windowName;
     String processId;
     String processName;
-  }
-
-  /**
-   * Format date to ISO 8601 format
-   */
-  private String formatTimestamp(java.util.Date date) {
-    if (date == null) return null;
-    java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSSSSXXX");
-    sdf.setTimeZone(java.util.TimeZone.getTimeZone("UTC"));
-    return sdf.format(date);
-  }
-
-  /**
-   * Map internal login status codes to external format
-   */
-  private String mapLoginStatus(String status) {
-    if (status == null) return "UNKNOWN";
-    switch (status) {
-      case "S":
-        return SUCCESS;
-      case "F":
-        return FAILED;
-      case "L":
-        return "LOCKED";
-      default:
-        return status;
-    }
   }
 
   /**
@@ -591,6 +599,30 @@ public class AnalyticsSyncService {
     return mapper.writeValueAsString(root);
   }
 
+  private String buildConfigSummary(AnalyticsExporterConfigService.EffectiveConfig config) {
+    return "Source=" + (config.isConfigured() ? "window" : "defaults")
+        + (StringUtils.isNotBlank(config.getConfigRecordId()) ? " | ConfigID=" + config.getConfigRecordId() : "")
+        + " | InitialExportDays=" + config.getInitialExportDays()
+        + " | ChunkDays=" + config.getChunkDays()
+        + " | MaxRetries=" + config.getMaxRetries()
+        + " | RetryDelayMs=" + config.getRetryDelayMs()
+        + " | ConnectTimeoutMs=" + config.getConnectTimeoutMs()
+        + " | ReadTimeoutMs=" + config.getReadTimeoutMs()
+        + " | DetailedLogging=" + config.isDetailedLoggingEnabled();
+  }
+
+  private String formatTraceTimestamp(Timestamp timestamp) {
+    return timestamp != null ? AnalyticsSyncSupport.formatTimestamp(timestamp) : "N/A";
+  }
+
+  private String truncatePersistedLog(String logMessage) {
+    if (StringUtils.length(logMessage) <= MAX_PERSISTED_LOG_LENGTH) {
+      return logMessage;
+    }
+    return logMessage.substring(0, MAX_PERSISTED_LOG_LENGTH)
+        + "\n...[detailed log truncated]";
+  }
+
   private void saveSuccessfulSync(String syncType, String jobId, int recordsCount) {
     saveSuccessfulSync(syncType, jobId, recordsCount, Timestamp.from(Instant.now()), null);
   }
@@ -606,7 +638,8 @@ public class AnalyticsSyncService {
           OBDal.getInstance().get(org.openbravo.model.common.enterprise.Organization.class, "0"));
       syncRecord.setActive(true);
       syncRecord.setSyncType(syncType);
-      syncRecord.setLastSync(syncTimestamp != null ? new java.util.Date(syncTimestamp.getTime()) : new java.util.Date());
+      syncRecord.setLastSync(syncTimestamp != null ? new Date(syncTimestamp.getTime()) : new Date());
+      syncRecord.setLastJob(jobId);
       syncRecord.setLastStatus(SUCCESS);
 
       StringBuilder logMessage = new StringBuilder();
@@ -615,7 +648,7 @@ public class AnalyticsSyncService {
       if (StringUtils.isNotBlank(details)) {
         logMessage.append("\n").append(details);
       }
-      syncRecord.setLog(logMessage.toString());
+      syncRecord.setLog(truncatePersistedLog(logMessage.toString()));
 
       OBDal.getInstance().save(syncRecord);
       OBDal.getInstance().flush();
@@ -625,7 +658,7 @@ public class AnalyticsSyncService {
     }
   }
 
-  private void saveFailedSync(String syncType, String errorMessage) {
+  private void saveFailedSync(String syncType, String errorMessage, String details) {
     try {
       OBContext.setAdminMode(true);
       AnalyticsSync syncRecord = OBProvider.getInstance().get(AnalyticsSync.class);
@@ -635,9 +668,15 @@ public class AnalyticsSyncService {
           OBDal.getInstance().get(org.openbravo.model.common.enterprise.Organization.class, "0"));
       syncRecord.setActive(true);
       syncRecord.setSyncType(syncType);
-      syncRecord.setLastSync(new java.util.Date());
+      syncRecord.setLastSync(new Date());
+      syncRecord.setLastJob(null);
       syncRecord.setLastStatus(FAILED);
-      syncRecord.setLog("Error: " + errorMessage);
+      StringBuilder logMessage = new StringBuilder();
+      logMessage.append("Error: ").append(errorMessage);
+      if (StringUtils.isNotBlank(details)) {
+        logMessage.append("\n").append(details);
+      }
+      syncRecord.setLog(truncatePersistedLog(logMessage.toString()));
 
       OBDal.getInstance().save(syncRecord);
       OBDal.getInstance().flush();
@@ -700,7 +739,7 @@ public class AnalyticsSyncService {
         SyncState state = new SyncState();
         state.setLastSyncTimestamp(
             lastSync.getLastSync() != null ? new Timestamp(lastSync.getLastSync().getTime()) : null);
-        state.setLastJobId(null);
+        state.setLastJobId(StringUtils.trimToNull(lastSync.getLastJob()));
         state.setLastStatus(lastSync.getLastStatus());
         log.info("Found last successful sync for {}: {}", syncType, state.getLastSyncTimestamp());
         return state;
@@ -746,14 +785,18 @@ public class AnalyticsSyncService {
     state.setLastStatus(lastSync.getLastStatus());
     state.setLog(lastSync.getLog());
 
-    // Extract job_id from log
-    String log = lastSync.getLog();
-    if (log != null && log.contains(JOB_ID)) {
-      String jobId = log.substring(log.indexOf(JOB_ID) + 8);
-      if (jobId.contains("\n")) {
-        jobId = jobId.substring(0, jobId.indexOf("\n"));
+    state.setLastJobId(StringUtils.trimToNull(lastSync.getLastJob()));
+
+    // Backward-compatible extraction for older records persisted before LAST_JOB was populated.
+    if (state.getLastJobId() == null) {
+      String log = lastSync.getLog();
+      if (log != null && log.contains(JOB_ID)) {
+        String jobId = log.substring(log.indexOf(JOB_ID) + 8);
+        if (jobId.contains("\n")) {
+          jobId = jobId.substring(0, jobId.indexOf("\n"));
+        }
+        state.setLastJobId(jobId.trim().equals("N/A") ? null : jobId.trim());
       }
-      state.setLastJobId(jobId.trim().equals("N/A") ? null : jobId.trim());
     }
     return state;
   }
@@ -842,6 +885,93 @@ public class AnalyticsSyncService {
 
     public void setError(Exception error) {
       this.error = error;
+    }
+  }
+
+  private static class SyncExecutionTrace {
+    private final String syncType;
+    private final Timestamp startTime;
+    private Timestamp endTime;
+    private boolean detailedLoggingEnabled;
+    private final StringBuilder summary = new StringBuilder();
+    private final StringBuilder details = new StringBuilder();
+
+    private SyncExecutionTrace(String syncType, Timestamp startTime) {
+      this.syncType = syncType;
+      this.startTime = startTime;
+      addSummary("Sync Type: " + syncType);
+      addSummary("Started At: " + AnalyticsSyncSupport.formatTimestamp(startTime));
+    }
+
+    public boolean isDetailedLoggingEnabled() {
+      return detailedLoggingEnabled;
+    }
+
+    public void setDetailedLoggingEnabled(boolean detailedLoggingEnabled) {
+      this.detailedLoggingEnabled = detailedLoggingEnabled;
+    }
+
+    public void setEndTime(Timestamp endTime) {
+      this.endTime = endTime;
+    }
+
+    public void addSummary(String line) {
+      appendLine(summary, line);
+    }
+
+    public void addDetail(String line) {
+      if (detailedLoggingEnabled) {
+        appendLine(details, line);
+      }
+    }
+
+    public String renderSuccess(SyncResult result, int recordsCount, Integer sentChunks, Integer skippedChunks) {
+      return renderCommon(result, recordsCount, sentChunks, skippedChunks);
+    }
+
+    public String renderFailure(SyncResult result) {
+      return renderCommon(result, result.getSessionsCount() + result.getAuditsCount() + result.getModulesCount(), null, null);
+    }
+
+    private String renderCommon(SyncResult result, int recordsCount, Integer sentChunks, Integer skippedChunks) {
+      StringBuilder log = new StringBuilder();
+      log.append(summary);
+      Timestamp effectiveEndTime = endTime != null ? endTime : Timestamp.from(Instant.now());
+      appendLine(log, "Finished At: " + AnalyticsSyncSupport.formatTimestamp(effectiveEndTime));
+      appendLine(log, "DurationMs: " + Math.max(0L, effectiveEndTime.getTime() - startTime.getTime()));
+      appendLine(log, "Status: " + StringUtils.defaultIfBlank(result.getStatus(), "N/A"));
+      appendLine(log, "Records: " + recordsCount);
+      if (result.getSessionsCount() > 0 || StringUtils.equals(syncType, SYNC_TYPE_SESSION_USAGE_AUDITS)) {
+        appendLine(log, "Sessions: " + result.getSessionsCount() + " | Audits: " + result.getAuditsCount());
+      }
+      if (result.getModulesCount() > 0 || StringUtils.equals(syncType, SYNC_TYPE_MODULE_METADATA)) {
+        appendLine(log, "Modules: " + result.getModulesCount());
+      }
+      if (sentChunks != null || skippedChunks != null) {
+        appendLine(log, "Chunks Sent: " + defaultInt(sentChunks) + " | Skipped Empty Chunks: " + defaultInt(skippedChunks));
+      }
+      if (StringUtils.isNotBlank(result.getMessage())) {
+        appendLine(log, "Message: " + result.getMessage());
+      }
+      if (detailedLoggingEnabled && details.length() > 0) {
+        log.append("Detailed Execution Log:\n");
+        log.append(details);
+      }
+      return log.toString().trim();
+    }
+
+    private int defaultInt(Integer value) {
+      return value != null ? value : 0;
+    }
+
+    private void appendLine(StringBuilder builder, String line) {
+      if (StringUtils.isBlank(line)) {
+        return;
+      }
+      if (builder.length() > 0) {
+        builder.append("\n");
+      }
+      builder.append(line);
     }
   }
 

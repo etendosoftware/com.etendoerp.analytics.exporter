@@ -47,6 +47,12 @@ import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpServer;
 
+/**
+ * Integration-style unit tests for {@link ReceiverHttpClient} transport behavior.
+ * <p>
+ * These tests use an in-memory HTTP server to exercise response handling,
+ * retries, payload serialization, and receiver URL preference resolution.
+ */
 @ExtendWith(MockitoExtension.class)
 public class ReceiverHttpClientTransportTest extends BaseAnalyticsTest {
 
@@ -59,9 +65,16 @@ public class ReceiverHttpClientTransportTest extends BaseAnalyticsTest {
   @Mock
   private Preference selectedPreference;
 
+  private static final String PING_PAYLOAD = "{\"ping\":true}";
+
   @Mock
   private Preference fallbackPreference;
 
+  /**
+   * Verifies successful payload delivery and response metric population.
+   *
+   * @throws Exception if the local HTTP server interaction fails unexpectedly
+   */
   @Test
   public void testSendPayloadReturnsAcceptedResponseAndMetrics() throws Exception {
     AnalyticsExporterConfigService.EffectiveConfig config = buildConfig(1, 0);
@@ -76,7 +89,7 @@ public class ReceiverHttpClientTransportTest extends BaseAnalyticsTest {
 
     try {
       ReceiverHttpClient client = new ReceiverHttpClient(serverUrl(server), mockConfigService);
-      ReceiverHttpClient.ReceiverResponse response = client.sendPayload("{\"ping\":true}");
+      ReceiverHttpClient.ReceiverResponse response = client.sendPayload(PING_PAYLOAD);
 
       assertEquals(1, hits.get());
       assertEquals("accepted", response.getStatus());
@@ -89,6 +102,11 @@ public class ReceiverHttpClientTransportTest extends BaseAnalyticsTest {
     }
   }
 
+  /**
+   * Verifies that server-side failures are retried and a later success is returned.
+   *
+   * @throws Exception if the local HTTP server interaction fails unexpectedly
+   */
   @Test
   public void testSendPayloadRetriesOnServerErrorThenSucceeds() throws Exception {
     AnalyticsExporterConfigService.EffectiveConfig config = buildConfig(2, 1);
@@ -106,7 +124,7 @@ public class ReceiverHttpClientTransportTest extends BaseAnalyticsTest {
 
     try {
       ReceiverHttpClient client = new ReceiverHttpClient(serverUrl(server), mockConfigService);
-      ReceiverHttpClient.ReceiverResponse response = client.sendPayload("{\"ping\":true}");
+      ReceiverHttpClient.ReceiverResponse response = client.sendPayload(PING_PAYLOAD);
 
       assertEquals(2, hits.get());
       assertEquals("job-2", response.getJobId());
@@ -116,6 +134,11 @@ public class ReceiverHttpClientTransportTest extends BaseAnalyticsTest {
     }
   }
 
+  /**
+   * Verifies that client-side HTTP errors are not retried.
+   *
+   * @throws Exception if the local HTTP server interaction fails unexpectedly
+   */
   @Test
   public void testSendPayloadThrowsOnClientErrorWithoutRetry() throws Exception {
     AnalyticsExporterConfigService.EffectiveConfig config = buildConfig(3, 1);
@@ -130,13 +153,18 @@ public class ReceiverHttpClientTransportTest extends BaseAnalyticsTest {
     try {
       ReceiverHttpClient client = new ReceiverHttpClient(serverUrl(server), mockConfigService);
 
-      assertThrows(OBException.class, () -> client.sendPayload("{\"ping\":true}"));
+      assertThrows(OBException.class, () -> client.sendPayload(PING_PAYLOAD));
       assertEquals(1, hits.get());
     } finally {
       server.stop(0);
     }
   }
 
+  /**
+   * Verifies that the object-based overload serializes and sends the analytics payload.
+   *
+   * @throws Exception if the local HTTP server interaction fails unexpectedly
+   */
   @Test
   public void testSendPayloadSerializesAnalyticsPayloadObject() throws Exception {
     AnalyticsExporterConfigService.EffectiveConfig config = buildConfig(1, 0);
@@ -163,6 +191,9 @@ public class ReceiverHttpClientTransportTest extends BaseAnalyticsTest {
     }
   }
 
+  /**
+   * Verifies that the selected preference is preferred over fallback records.
+   */
   @Test
   public void testGetReceiverUrlFromPreferenceUsesSelectedPreferenceFirst() {
     when(mockOBDal.createCriteria(Preference.class)).thenReturn(mockPreferenceCriteria);
@@ -177,6 +208,9 @@ public class ReceiverHttpClientTransportTest extends BaseAnalyticsTest {
     assertEquals("https://selected.example/process", url);
   }
 
+  /**
+   * Verifies that the first available preference is used when none is marked as selected.
+   */
   @Test
   public void testGetReceiverUrlFromPreferenceFallsBackToFirstPreference() {
     when(mockOBDal.createCriteria(Preference.class)).thenReturn(mockPreferenceCriteria);
@@ -190,6 +224,9 @@ public class ReceiverHttpClientTransportTest extends BaseAnalyticsTest {
     assertEquals("https://fallback.example/process", url);
   }
 
+  /**
+   * Verifies that preference lookup failures return {@code null} instead of bubbling exceptions.
+   */
   @Test
   public void testGetReceiverUrlFromPreferenceReturnsNullWhenLookupFails() {
     when(mockOBDal.createCriteria(Preference.class)).thenReturn(mockPreferenceCriteria);

@@ -78,6 +78,9 @@ public class AnalyticsSyncServiceTest extends BaseAnalyticsTest {
   public static final String GET_INSTANCE_NAME = "getInstanceName";
   public static final String GET_SYNC_STATE = "getSyncState";
   public static final String REFLECTION_FAILED = "Reflection failed";
+  public static final String EXTRACTION_SERVICE_FIELD = "extractionService";
+  public static final String HTTP_CLIENT_FIELD = "httpClient";
+  public static final String CONFIG_SERVICE_FIELD = "configService";
   private AnalyticsSyncService service;
 
   @Mock
@@ -401,9 +404,9 @@ public class AnalyticsSyncServiceTest extends BaseAnalyticsTest {
    */
   @Test
   public void testExecuteSyncChunksFirstSyncAndAggregatesResults() throws Exception {
-    injectField("extractionService", mockExtractionService);
-    injectField("httpClient", mockHttpClient);
-    injectField("configService", mockConfigService);
+    injectField(EXTRACTION_SERVICE_FIELD, mockExtractionService);
+    injectField(HTTP_CLIENT_FIELD, mockHttpClient);
+    injectField(CONFIG_SERVICE_FIELD, mockConfigService);
 
     lenient().when(mockOBDal.createCriteria(AnalyticsSync.class)).thenReturn(mockSyncCriteria);
     setupLenientCriteriaMock(mockSyncCriteria);
@@ -451,9 +454,9 @@ public class AnalyticsSyncServiceTest extends BaseAnalyticsTest {
    */
   @Test
   public void testExecuteSyncChunksWithNoData() throws Exception {
-    injectField("extractionService", mockExtractionService);
-    injectField("httpClient", mockHttpClient);
-    injectField("configService", mockConfigService);
+    injectField(EXTRACTION_SERVICE_FIELD, mockExtractionService);
+    injectField(HTTP_CLIENT_FIELD, mockHttpClient);
+    injectField(CONFIG_SERVICE_FIELD, mockConfigService);
 
     lenient().when(mockOBDal.createCriteria(AnalyticsSync.class)).thenReturn(mockSyncCriteria);
     setupLenientCriteriaMock(mockSyncCriteria);
@@ -476,12 +479,14 @@ public class AnalyticsSyncServiceTest extends BaseAnalyticsTest {
 
   /**
    * Tests configurable first sync window size and chunk size.
+   *
+   * @throws Exception if service execution or reflection-based injection fails
    */
   @Test
   public void testExecuteSyncUsesConfiguredInitialDaysAndChunkDays() throws Exception {
-    injectField("extractionService", mockExtractionService);
-    injectField("httpClient", mockHttpClient);
-    injectField("configService", mockConfigService);
+    injectField(EXTRACTION_SERVICE_FIELD, mockExtractionService);
+    injectField(HTTP_CLIENT_FIELD, mockHttpClient);
+    injectField(CONFIG_SERVICE_FIELD, mockConfigService);
 
     lenient().when(mockOBDal.createCriteria(AnalyticsSync.class)).thenReturn(mockSyncCriteria);
     setupLenientCriteriaMock(mockSyncCriteria);
@@ -501,12 +506,14 @@ public class AnalyticsSyncServiceTest extends BaseAnalyticsTest {
 
   /**
    * Tests configurable incremental chunk size.
+   *
+   * @throws Exception if service execution or reflection-based injection fails
    */
   @Test
   public void testExecuteSyncUsesConfiguredChunkDaysForIncrementalSync() throws Exception {
-    injectField("extractionService", mockExtractionService);
-    injectField("httpClient", mockHttpClient);
-    injectField("configService", mockConfigService);
+    injectField(EXTRACTION_SERVICE_FIELD, mockExtractionService);
+    injectField(HTTP_CLIENT_FIELD, mockHttpClient);
+    injectField(CONFIG_SERVICE_FIELD, mockConfigService);
 
     lenient().when(mockOBDal.createCriteria(AnalyticsSync.class)).thenReturn(mockSyncCriteria);
     setupLenientCriteriaMock(mockSyncCriteria);
