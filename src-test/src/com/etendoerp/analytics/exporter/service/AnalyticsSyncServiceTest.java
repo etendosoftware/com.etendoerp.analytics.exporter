@@ -73,7 +73,6 @@ public class AnalyticsSyncServiceTest extends BaseAnalyticsTest {
   public static final String TEST_INSTANCE = "test-instance";
   public static final String JOB_123 = "job-123";
   public static final String FAILED = "FAILED";
-  public static final String MAP_LOGIN_STATUS = "mapLoginStatus";
   public static final String SUCCESS = "SUCCESS";
   public static final String GET_INSTANCE_NAME = "getInstanceName";
   public static final String GET_SYNC_STATE = "getSyncState";
@@ -541,14 +540,9 @@ public class AnalyticsSyncServiceTest extends BaseAnalyticsTest {
    *     if reflection fails
    */
   @Test
-  public void testFormatTimestampWithValidDate() throws Exception {
-    // Use reflection to access private method
-    java.lang.reflect.Method method = AnalyticsSyncService.class.getDeclaredMethod("formatTimestamp",
-        java.util.Date.class);
-    method.setAccessible(true);
-
+  public void testFormatTimestampWithValidDate() {
     Date testDate = new Date(1705228800000L); // 2024-01-14T08:00:00Z
-    String result = (String) method.invoke(service, testDate);
+    String result = AnalyticsSyncSupport.formatTimestamp(testDate);
 
     assertNotNull(result);
     assertTrue(result.contains("T"));
@@ -562,12 +556,8 @@ public class AnalyticsSyncServiceTest extends BaseAnalyticsTest {
    *     if reflection fails
    */
   @Test
-  public void testFormatTimestampWithNull() throws Exception {
-    java.lang.reflect.Method method = AnalyticsSyncService.class.getDeclaredMethod("formatTimestamp",
-        java.util.Date.class);
-    method.setAccessible(true);
-
-    String result = (String) method.invoke(service, (Date) null);
+  public void testFormatTimestampWithNull() {
+    String result = AnalyticsSyncSupport.formatTimestamp(null);
     assertNull(result);
   }
 
@@ -578,11 +568,8 @@ public class AnalyticsSyncServiceTest extends BaseAnalyticsTest {
    *     if reflection fails
    */
   @Test
-  public void testMapLoginStatusSuccess() throws Exception {
-    java.lang.reflect.Method method = AnalyticsSyncService.class.getDeclaredMethod(MAP_LOGIN_STATUS, String.class);
-    method.setAccessible(true);
-
-    String result = (String) method.invoke(service, "S");
+  public void testMapLoginStatusSuccess() {
+    String result = AnalyticsSyncSupport.mapLoginStatus("S", SUCCESS, FAILED);
     assertEquals(SUCCESS, result);
   }
 
@@ -593,11 +580,8 @@ public class AnalyticsSyncServiceTest extends BaseAnalyticsTest {
    *     if reflection fails
    */
   @Test
-  public void testMapLoginStatusFailed() throws Exception {
-    java.lang.reflect.Method method = AnalyticsSyncService.class.getDeclaredMethod(MAP_LOGIN_STATUS, String.class);
-    method.setAccessible(true);
-
-    String result = (String) method.invoke(service, "F");
+  public void testMapLoginStatusFailed() {
+    String result = AnalyticsSyncSupport.mapLoginStatus("F", SUCCESS, FAILED);
     assertEquals(FAILED, result);
   }
 
@@ -608,11 +592,8 @@ public class AnalyticsSyncServiceTest extends BaseAnalyticsTest {
    *     if reflection fails
    */
   @Test
-  public void testMapLoginStatusLocked() throws Exception {
-    java.lang.reflect.Method method = AnalyticsSyncService.class.getDeclaredMethod(MAP_LOGIN_STATUS, String.class);
-    method.setAccessible(true);
-
-    String result = (String) method.invoke(service, "L");
+  public void testMapLoginStatusLocked() {
+    String result = AnalyticsSyncSupport.mapLoginStatus("L", SUCCESS, FAILED);
     assertEquals("LOCKED", result);
   }
 
@@ -623,11 +604,8 @@ public class AnalyticsSyncServiceTest extends BaseAnalyticsTest {
    *     if reflection fails
    */
   @Test
-  public void testMapLoginStatusUnknown() throws Exception {
-    java.lang.reflect.Method method = AnalyticsSyncService.class.getDeclaredMethod(MAP_LOGIN_STATUS, String.class);
-    method.setAccessible(true);
-
-    String result = (String) method.invoke(service, "X");
+  public void testMapLoginStatusUnknown() {
+    String result = AnalyticsSyncSupport.mapLoginStatus("X", SUCCESS, FAILED);
     assertEquals("X", result); // Returns as-is for unknown
   }
 
@@ -638,11 +616,8 @@ public class AnalyticsSyncServiceTest extends BaseAnalyticsTest {
    *     if reflection fails
    */
   @Test
-  public void testMapLoginStatusNull() throws Exception {
-    java.lang.reflect.Method method = AnalyticsSyncService.class.getDeclaredMethod(MAP_LOGIN_STATUS, String.class);
-    method.setAccessible(true);
-
-    String result = (String) method.invoke(service, (String) null);
+  public void testMapLoginStatusNull() {
+    String result = AnalyticsSyncSupport.mapLoginStatus(null, SUCCESS, FAILED);
     assertEquals("UNKNOWN", result);
   }
 

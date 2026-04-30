@@ -707,7 +707,7 @@ public class AnalyticsSyncService {
       if (StringUtils.isBlank(accountID)) {
         log.warn("Empty System Identifier, Instance Name will be empty");
       }
-    } catch (Exception e) {
+    } catch (Throwable e) {
       log.error("Could not determine instance name, using default", e);
     } finally {
       OBContext.restorePreviousMode();
