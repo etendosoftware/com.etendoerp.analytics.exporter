@@ -33,7 +33,7 @@
 <!--C9F2A4D6E8B1473CAD5E1F2A4B6C8D10-->  <NAME><![CDATA[ETAE_AnalyticsExporterConfig]]></NAME>
 <!--C9F2A4D6E8B1473CAD5E1F2A4B6C8D10-->  <DESCRIPTION><![CDATA[Stores system-level runtime configuration for the analytics exporter sender.]]></DESCRIPTION>
 <!--C9F2A4D6E8B1473CAD5E1F2A4B6C8D10-->  <HELP><![CDATA[This table controls first sync bootstrap size, session/audit chunking, retry policy, HTTP timeouts, and diagnostic logging for the analytics exporter sender.]]></HELP>
-<!--C9F2A4D6E8B1473CAD5E1F2A4B6C8D10-->  <TABLENAME><![CDATA[ETAE_Analytics_Exporter_Config]]></TABLENAME>
+<!--C9F2A4D6E8B1473CAD5E1F2A4B6C8D10-->  <TABLENAME><![CDATA[ETAE_Analytics_Exp_Config]]></TABLENAME>
 <!--C9F2A4D6E8B1473CAD5E1F2A4B6C8D10-->  <CLASSNAME><![CDATA[AnalyticsExporterConfig]]></CLASSNAME>
 <!--C9F2A4D6E8B1473CAD5E1F2A4B6C8D10-->  <ISVIEW><![CDATA[N]]></ISVIEW>
 <!--C9F2A4D6E8B1473CAD5E1F2A4B6C8D10-->  <ACCESSLEVEL><![CDATA[4]]></ACCESSLEVEL>

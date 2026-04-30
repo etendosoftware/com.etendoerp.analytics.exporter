@@ -1,6 +1,10 @@
 <?xml version="1.0"?>
-  <database name="TABLE ETAE_ANALYTICS_EXPORTER_CONFIG">
-    <table name="ETAE_ANALYTICS_EXPORTER_CONFIG" primaryKey="ETAE_ANALYT_EXP_CONFIG_PK">
+  <database name="TABLE ETAE_ANALYTICS_EXP_CONFIG">
+    <table name="ETAE_ANALYTICS_EXP_CONFIG" primaryKey="ETAE_ANALYT_EXP_CONFIG_PK">
+      <column name="ETAE_ANALYTICS_EXP_CONFIG_ID" primaryKey="true" required="true" type="VARCHAR" size="32" autoIncrement="false">
+        <default/>
+        <onCreateDefault/>
+      </column>
       <column name="AD_CLIENT_ID" primaryKey="false" required="true" type="VARCHAR" size="32" autoIncrement="false">
         <default/>
         <onCreateDefault/>
@@ -11,6 +15,10 @@
       </column>
       <column name="ISACTIVE" primaryKey="false" required="true" type="CHAR" size="1" autoIncrement="false">
         <default><![CDATA[Y]]></default>
+        <onCreateDefault/>
+      </column>
+      <column name="CREATED" primaryKey="false" required="true" type="TIMESTAMP" size="7" autoIncrement="false">
+        <default><![CDATA[SYSDATE]]></default>
         <onCreateDefault/>
       </column>
       <column name="CREATEDBY" primaryKey="false" required="true" type="VARCHAR" size="32" autoIncrement="false">
@@ -59,14 +67,6 @@
       </column>
       <column name="DETAILED_LOGGING_ENABLED" primaryKey="false" required="true" type="CHAR" size="1" autoIncrement="false">
         <default><![CDATA[N]]></default>
-        <onCreateDefault/>
-      </column>
-      <column name="ETAE_ANALYT_EXP_CONFIG_ID" primaryKey="true" required="true" type="VARCHAR" size="32" autoIncrement="false">
-        <default/>
-        <onCreateDefault/>
-      </column>
-      <column name="CREATIONDATE" primaryKey="false" required="true" type="TIMESTAMP" size="7" autoIncrement="false">
-        <default><![CDATA[SYSDATE]]></default>
         <onCreateDefault/>
       </column>
       <foreign-key foreignTable="AD_CLIENT" name="ETAE_ANALYT_EXP_CFG_AD_CLIENT">
